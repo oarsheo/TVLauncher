@@ -17,8 +17,8 @@ android {
         applicationId = "com.arshe.tvos"
         minSdk = 30
         targetSdk = 34
-        versionCode = 22
-        versionName = "0.22"
+        versionCode = 23
+        versionName = "0.23"
         // OTA updates: GitHub repo with releases tagged v<versionCode>; token only needed for a private repo.
         buildConfigField("String", "UPDATE_REPO", "\"${localProps.getProperty("update.repo", "oarsheo/TVLauncher")}\"")
         buildConfigField("String", "UPDATE_TOKEN", "\"${localProps.getProperty("github.token", "")}\"")
