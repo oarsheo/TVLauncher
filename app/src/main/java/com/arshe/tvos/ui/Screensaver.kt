@@ -43,6 +43,7 @@ import androidx.savedstate.SavedStateRegistry
 import androidx.savedstate.SavedStateRegistryController
 import androidx.savedstate.SavedStateRegistryOwner
 import androidx.savedstate.setViewTreeSavedStateRegistryOwner
+import com.arshe.tvos.data.HERO_PX
 import com.arshe.tvos.data.Action
 import com.arshe.tvos.data.HeroItem
 import com.arshe.tvos.data.SaverStore
@@ -76,7 +77,7 @@ fun Screensaver(items: List<HeroItem>, onCurrent: (HeroItem?) -> Unit) {
             val pan by rememberInfiniteTransition(label = "pan").animateFloat(
                 0f, 1f, infiniteRepeatable(tween(SLIDE_MS, easing = LinearEasing), RepeatMode.Reverse), label = "panT",
             )
-            val img by rememberPoster(item.poster, 1920)
+            val img by rememberPoster(item.poster, HERO_PX)
             val bmp = img
             Box(
                 Modifier.fillMaxSize().graphicsLayer {
@@ -157,11 +158,12 @@ class TvosDream : DreamService(), LifecycleOwner, SavedStateRegistryOwner {
 
     override fun onDreamingStarted() {
         super.onDreamingStarted()
-        registry.currentState = Lifecycle.State.RESUMED
+        if (registry.currentState != Lifecycle.State.DESTROYED) registry.currentState = Lifecycle.State.RESUMED
     }
 
     override fun onDreamingStopped() {
-        registry.currentState = Lifecycle.State.CREATED
+        // The window can be detached (DESTROYED) before the system reports the stop.
+        if (registry.currentState != Lifecycle.State.DESTROYED) registry.currentState = Lifecycle.State.CREATED
         super.onDreamingStopped()
     }
 

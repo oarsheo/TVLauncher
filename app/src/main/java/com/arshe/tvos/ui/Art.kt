@@ -135,9 +135,11 @@ fun ArtCanvas(art: Art, modifier: Modifier = Modifier) {
 }
 
 object BitmapCache {
-    private val cache = object : LruCache<String, ImageBitmap>(40 * 1024 * 1024) {
+    private val cache = object : LruCache<String, ImageBitmap>(12 * 1024 * 1024) {
         override fun sizeOf(key: String, value: ImageBitmap) = value.width * value.height * 4
     }
+
+    fun clear() = cache.evictAll()
 
     /** Smooth gradients survive half resolution; it quarters the CPU render time and memory. */
     private const val RES = 0.5f

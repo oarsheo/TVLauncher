@@ -6,6 +6,7 @@ import androidx.activity.ComponentActivity
 import androidx.activity.OnBackPressedCallback
 import androidx.activity.compose.setContent
 import androidx.lifecycle.lifecycleScope
+import com.arshe.tvos.data.HERO_PX
 import com.arshe.tvos.data.AppsRepository
 import com.arshe.tvos.data.SourcesRepository
 import com.arshe.tvos.data.Images
@@ -31,8 +32,8 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
-// Hero backdrop, wide card, home app card, grid/source card — in design px.
-private val ART_SIZES = listOf(Size(1500f, 800f), Size(352f, 198f), Size(264f, 148f), Size(300f, 169f))
+// Apps grid / inputs cards — in design px.
+private val ART_SIZES = listOf(Size(300f, 169f))
 
 class MainActivity : ComponentActivity() {
     private lateinit var apps: AppsRepository
@@ -56,6 +57,29 @@ class MainActivity : ComponentActivity() {
         lifecycleScope.launch { NowPlaying.items.collect { launcher.recents = it } }
 
         setContent { LauncherRoot(launcher) }
+
+    }
+
+    override fun onStart() {
+        super.onStart()
+        launcher.visible = true
+    }
+
+    // While another app plays, hand our image memory back to it: drop the UI and the
+    // decoded-image caches (artwork reloads from the disk cache on return).
+    override fun onStop() {
+        super.onStop()
+        launcher.visible = false
+        Images.clear()
+        BitmapCache.clear()
+    }
+
+    override fun onTrimMemory(level: Int) {
+        super.onTrimMemory(level)
+        if (level >= TRIM_MEMORY_UI_HIDDEN) {
+            Images.clear()
+            BitmapCache.clear()
+        }
     }
 
     override fun onResume() {
@@ -96,10 +120,10 @@ class MainActivity : ComponentActivity() {
             rows.forEachIndexed { r, row ->
                 row.items.take(8).forEachIndexed { i, it ->
                     val card = if (row.portrait) it.cover ?: it.poster else it.poster
-                    card?.let { u -> Images.load(this@MainActivity, u, if (row.portrait) 260 else 480) }
+                    card?.let { u -> Images.load(this@MainActivity, u, if (row.portrait) 200 else 400) }
                     if (r == 0 && i < 6) {
                         val hero = if (it.key.startsWith("mg:")) Lookup.megogoBackdrop(this@MainActivity, it.key.removePrefix("mg:")) ?: it.poster else it.poster
-                        hero?.let { u -> Images.load(this@MainActivity, u, 1920) }
+                        hero?.let { u -> Images.load(this@MainActivity, u, HERO_PX) }
                     }
                 }
             }

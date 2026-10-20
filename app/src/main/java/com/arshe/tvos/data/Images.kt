@@ -18,11 +18,21 @@ import java.io.InputStream
 import java.net.HttpURLConnection
 import java.net.URL
 
-/** Minimal poster loader: content://, android.resource:// and http(s), downsampled, LRU-cached. */
+/**
+ * Minimal poster loader: content://, android.resource:// and http(s). Decodes to the exact
+ * width asked for and keeps pixels only in GPU memory (HARDWARE bitmaps), so a poster costs
+ * one texture instead of a texture plus a heap copy.
+ */
+/** Billboard decode width: the UI renders at 1080p and the hero sits behind scrims. */
+const val HERO_PX = 1600
+
 object Images {
-    private val cache = object : LruCache<String, ImageBitmap>(48 * 1024 * 1024) {
-        override fun sizeOf(key: String, value: ImageBitmap) = value.width * value.height * 4
+    private val cache = object : LruCache<String, ImageBitmap>(20 * 1024 * 1024) {
+        override fun sizeOf(key: String, value: ImageBitmap) = value.width * value.height * 2
     }
+
+    /** Drop decoded images (the disk cache stays); called when the launcher goes to the background. */
+    fun clear() = cache.evictAll()
 
     suspend fun load(context: Context, uri: String, maxWidth: Int): ImageBitmap? {
         val key = "$uri@$maxWidth"
@@ -38,7 +48,12 @@ object Images {
                     inSampleSize = sample
                     inPreferredConfig = Bitmap.Config.RGB_565
                 }
-                BitmapFactory.decodeByteArray(bytes, 0, bytes.size, opts)?.asImageBitmap()
+                var bmp = BitmapFactory.decodeByteArray(bytes, 0, bytes.size, opts) ?: return@runCatching null
+                if (bmp.width > maxWidth) {
+                    val h = (bmp.height.toLong() * maxWidth / bmp.width).toInt().coerceAtLeast(1)
+                    bmp = Bitmap.createScaledBitmap(bmp, maxWidth, h, true)
+                }
+                (bmp.copy(Bitmap.Config.HARDWARE, false) ?: bmp).also { if (it !== bmp) bmp.recycle() }.asImageBitmap()
             }.getOrNull()?.also { cache.put(key, it) }
         }
     }

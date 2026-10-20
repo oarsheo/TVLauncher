@@ -55,6 +55,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.em
+import com.arshe.tvos.data.HERO_PX
 import com.arshe.tvos.data.Brand
 import com.arshe.tvos.data.rememberPoster
 
@@ -84,7 +85,7 @@ fun HeroBackdrop(backdrop: Backdrop, modifier: Modifier = Modifier, dim: Float =
 
 @Composable
 private fun BackdropFill(b: Backdrop) {
-    val poster by rememberPoster(b.poster, 1500)
+    val poster by rememberPoster(b.poster, HERO_PX)
     val bmp = poster
     if (bmp != null) {
         Image(bmp, null, Modifier.fillMaxSize(), contentScale = ContentScale.Crop, alignment = Alignment.CenterEnd)

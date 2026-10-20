@@ -20,6 +20,7 @@ import javax.net.ssl.X509TrustManager
 /** Ambilight / TV controls exposed by the Philips JointSpace API (v6) on the TV itself. */
 data class AmbiState(
     val power: Boolean,
+    /** Index in [AMBI_MODES]; -1 when the TV reports something else (e.g. OFF while powered down). */
     val mode: Int,
     val brightness: Int,
     val sleepMin: Int,
@@ -64,7 +65,7 @@ object JointSpace {
             val mode = AMBI_MODES.indexOfFirst { it.second == cfg?.optString("styleName") && it.third == cfg.optString("menuSetting") }
             val values = valuesQ.await()?.optJSONArray("values")
             fun value(i: Int) = values?.optJSONObject(i)?.optJSONObject("value")?.optJSONObject("data")?.optInt("value") ?: 0
-            AmbiState(power, mode.coerceAtLeast(0), value(0), value(1))
+            AmbiState(power, mode, value(0), value(1))
         }.onFailure { Log.w("TVOS", "jointspace state", it) }.getOrNull()
     }
 

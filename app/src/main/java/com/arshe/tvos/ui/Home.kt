@@ -47,6 +47,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.em
 import androidx.compose.ui.unit.sp
+import com.arshe.tvos.data.HERO_PX
 import com.arshe.tvos.data.ContentRow
 import com.arshe.tvos.data.HeroItem
 import com.arshe.tvos.data.Lookup
@@ -203,7 +204,7 @@ private fun Billboard(item: HeroItem) {
             }
             val (backdrop, ready) = resolved
             KenBurns {
-                val img by rememberPoster(if (ready) backdrop ?: b.poster else null, 1920)
+                val img by rememberPoster(if (ready) backdrop ?: b.poster else null, HERO_PX)
                 val bmp = img
                 if (bmp != null) Image(
                     bmp, null, Modifier.fillMaxSize(),
@@ -304,7 +305,7 @@ fun Strip(
 @Composable
 private fun LandscapeCard(item: HeroItem, focused: Boolean) {
     FocusCard(focused, LAND_W.dp, LAND_H.dp) {
-        val thumb by rememberPoster(item.poster, 480)
+        val thumb by rememberPoster(item.poster, 400)
         val t = thumb
         if (t != null) Image(t, null, Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
         else ArtCanvas(item.art, Modifier.fillMaxSize())
@@ -326,7 +327,7 @@ private fun LandscapeCard(item: HeroItem, focused: Boolean) {
 @Composable
 private fun PosterCard(item: HeroItem, focused: Boolean) {
     FocusCard(focused, PORT_W.dp, PORT_H.dp) {
-        val img by rememberPoster(item.cover ?: item.poster, 260)
+        val img by rememberPoster(item.cover ?: item.poster, 200)
         val t = img
         if (t != null) Image(t, null, Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
         else {

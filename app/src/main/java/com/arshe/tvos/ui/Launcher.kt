@@ -19,6 +19,7 @@ import com.arshe.tvos.data.Action
 import com.arshe.tvos.data.AmbiState
 import com.arshe.tvos.data.AppsRepository
 import com.arshe.tvos.data.JointSpace
+import com.arshe.tvos.data.LocalAdb
 import com.arshe.tvos.data.HeroItem
 import com.arshe.tvos.data.ContentRow
 import com.arshe.tvos.data.KEY_SETTINGS
@@ -127,6 +128,9 @@ class Launcher(
             return (rows.firstOrNull()?.items?.take(1).orEmpty() + catalog.take(6)).distinctBy { it.key }
         }
 
+    /** False while another app is on screen: the UI is torn down so its images can be freed. */
+    var visible by mutableStateOf(true)
+
     // ---- navigation ----
     var screen by mutableStateOf(Screen.Home)
     var zone by mutableStateOf(Zone.Nav)
@@ -151,19 +155,57 @@ class Launcher(
     var sheetFocus by mutableIntStateOf(0)
     var sheetRows by mutableStateOf(emptyList<SheetRow>())
     var ambi by mutableStateOf<AmbiState?>(null)
+    /** What we believe the TV currently has; diffed against [ambi] to send only what changed. */
+    private var ambiSent: AmbiState? = null
+    private var ambiJob: Job? = null
 
     fun refreshAmbi() {
-        if (JointSpace.configured) scope.launch { ambi = JointSpace.state() }
+        if (!JointSpace.configured || ambiJob?.isActive == true) return
+        scope.launch { JointSpace.state()?.let { merge(it) } }
     }
 
-    /** Optimistic update + fire-and-forget call to the TV. */
-    fun ambiUpdate(change: (AmbiState) -> AmbiState, call: suspend () -> Unit) {
-        ambi = ambi?.let(change)
-        scope.launch {
-            call()
-            // Re-sync with what the TV actually did.
-            JointSpace.state()?.let { ambi = it }
+    /** A powered-down TV reports no style; keep the user's last mode so "on" restores it. */
+    private fun merge(read: AmbiState) {
+        val mode = if (read.mode >= 0) read.mode else ambi?.mode?.takeIf { it >= 0 } ?: 0
+        ambi = read.copy(mode = mode)
+        ambiSent = ambi
+    }
+
+    /**
+     * Optimistic change. Rapid presses are coalesced: only the latest state is sent 250 ms
+     * after the last press, and the TV is re-read once things have been quiet for a while.
+     */
+    fun ambiSet(change: (AmbiState) -> AmbiState) {
+        val cur = ambi ?: return
+        ambi = change(cur)
+        ambiJob?.cancel()
+        ambiJob = scope.launch {
+            delay(250)
+            val want = ambi ?: return@launch
+            val was = ambiSent ?: cur
+            when {
+                want.power != was.power && want.power -> JointSpace.setMode(want.mode.coerceAtLeast(0))
+                want.power != was.power -> JointSpace.setPower(false)
+                want.power && want.mode != was.mode -> JointSpace.setMode(want.mode.coerceAtLeast(0))
+            }
+            if (want.brightness != was.brightness) JointSpace.setBrightness(want.brightness)
+            if (want.sleepMin != was.sleepMin) JointSpace.setSleep(want.sleepMin)
+            ambiSent = want
+            delay(1500)
+            JointSpace.state()?.let { merge(it) }
         }
+    }
+
+    fun ambiCall(call: suspend () -> Unit) { scope.launch { call() } }
+
+    fun startScreensaver() {
+        // SystemUI's public "start dreaming now" entry point.
+        launch(Intent(Intent.ACTION_MAIN).setClassName("com.android.systemui", "com.android.systemui.Somnambulator"))
+    }
+
+    /** Needs shell rights: goes through the TV's own adbd (asks once to allow the key). */
+    fun reboot() {
+        scope.launch { LocalAdb.shell(context, "svc power reboot") }
     }
 
     val heroItem: HeroItem?

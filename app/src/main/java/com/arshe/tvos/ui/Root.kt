@@ -36,26 +36,19 @@ fun LauncherRoot(l: Launcher) {
     SideEffect {
         l.sheetRows = buildList {
             if (a != null) {
-                // Actions read the live state at press time, never the snapshot the row was built from.
-                add(SheetRow("Ambilight", toggle = a.power, run = {
-                    val on = !(l.ambi?.power ?: return@SheetRow)
-                    l.ambiUpdate({ it.copy(power = on) }) { JointSpace.setPower(on) }
-                }))
-                fun mode(d: Int) {
-                    val cur = l.ambi ?: return
-                    val m = Math.floorMod(cur.mode + d, AMBI_MODES.size)
-                    l.ambiUpdate({ it.copy(mode = m, power = true) }) { JointSpace.setMode(m) }
-                }
-                add(SheetRow("Режим", value = AMBI_MODES[a.mode].first, adjust = ::mode, run = { mode(1) }))
+                val mode = a.mode.coerceAtLeast(0)
+                add(SheetRow("Ambilight", toggle = a.power, run = { l.ambiSet { it.copy(power = !it.power) } }))
+                fun cycle(d: Int) = l.ambiSet { it.copy(power = true, mode = Math.floorMod(it.mode.coerceAtLeast(0) + d, AMBI_MODES.size)) }
+                add(SheetRow("Режим", value = AMBI_MODES[mode].first, adjust = ::cycle, run = { cycle(1) }))
                 add(SheetRow("Яркость", slider = a.brightness to 10, adjust = { d ->
-                    val v = ((l.ambi ?: return@SheetRow).brightness + d).coerceIn(0, 10)
-                    l.ambiUpdate({ it.copy(brightness = v) }) { JointSpace.setBrightness(v) }
+                    l.ambiSet { it.copy(brightness = (it.brightness + d).coerceIn(0, 10)) }
                 }))
                 val step = SLEEP_STEPS.indexOfFirst { it >= a.sleepMin }.coerceAtLeast(0)
                 add(SheetRow("Таймер сна", chips = listOf("Выкл", "30", "60", "90", "120"), chip = step, gapBefore = true, adjust = { d ->
-                    val curStep = SLEEP_STEPS.indexOfFirst { it >= (l.ambi ?: return@SheetRow).sleepMin }.coerceAtLeast(0)
-                    val v = SLEEP_STEPS[(curStep + d).coerceIn(0, SLEEP_STEPS.size - 1)]
-                    l.ambiUpdate({ it.copy(sleepMin = v) }) { JointSpace.setSleep(v) }
+                    l.ambiSet { s ->
+                        val cur = SLEEP_STEPS.indexOfFirst { it >= s.sleepMin }.coerceAtLeast(0)
+                        s.copy(sleepMin = SLEEP_STEPS[(cur + d).coerceIn(0, SLEEP_STEPS.size - 1)])
+                    }
                 }))
             }
             add(SheetRow("Все настройки", "Philips", gapBefore = a != null) { l.sheetOpen = false; l.launch(AppsRepository.settingsIntent()) })
@@ -65,9 +58,11 @@ fun LauncherRoot(l: Launcher) {
                     l.sheetOpen = false; l.run(nord.action)
                 })
             }
-            if (JointSpace.configured) add(SheetRow("Выключить ТВ", danger = true, gapBefore = true) {
+            add(SheetRow("Заставка", gapBefore = true) { l.sheetOpen = false; l.startScreensaver() })
+            add(SheetRow("Перезагрузить ТВ", danger = true) { l.sheetOpen = false; l.reboot() })
+            if (JointSpace.configured) add(SheetRow("Выключить ТВ", danger = true) {
                 l.sheetOpen = false
-                l.ambiUpdate({ it }) { JointSpace.standby() }
+                l.ambiCall { JointSpace.standby() }
             })
         }
     }
@@ -79,14 +74,14 @@ fun LauncherRoot(l: Launcher) {
                 .onPreviewKeyEvent { l.onKey(it) }
                 .focusable(),
         ) {
-            Crossfade(l.screen, animationSpec = tween(250), label = "screen") { s ->
+            if (l.visible) Crossfade(l.screen, animationSpec = tween(250), label = "screen") { s ->
                 when (s) {
                     Screen.Home -> HomeScreen(l, time, net.vpn)
                     Screen.Apps -> AppsScreen(l)
                     Screen.Sources -> SourcesScreen(l)
                 }
             }
-            if (l.screen != Screen.Home) Rail(
+            if (l.visible && l.screen != Screen.Home) Rail(
                 open = l.zone == Zone.Rail && !l.sheetOpen,
                 focus = l.railFocus,
                 active = when (l.screen) {
