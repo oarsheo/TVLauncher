@@ -3,6 +3,7 @@ package com.arshe.tvos.ui
 import android.content.ActivityNotFoundException
 import android.content.Context
 import android.content.Intent
+import android.os.SystemClock
 import android.util.Log
 import android.view.KeyEvent as AKey
 import androidx.compose.runtime.getValue
@@ -418,9 +419,13 @@ class Launcher(
         heroBtn = 0
     }
 
+    /** Last remote press; the carousel rests after a couple of idle minutes so the CPU can too. */
+    private var lastInput = SystemClock.elapsedRealtime()
+    val carouselActive: Boolean get() = SystemClock.elapsedRealtime() - lastInput < 120_000
+
     /** Auto-advance the billboard while the user sits in the top bar or on its buttons. */
     fun carouselTick() {
-        if (screen != Screen.Home || zone == Zone.Row || sheetOpen) return
+        if (screen != Screen.Home || zone == Zone.Row || sheetOpen || !carouselActive) return
         val n = heroPool.size
         if (n > 1) heroSel = (heroSel + 1) % n
     }
@@ -438,6 +443,7 @@ class Launcher(
     // ---------------- keys ----------------
 
     fun onKey(e: KeyEvent): Boolean {
+        lastInput = SystemClock.elapsedRealtime()
         val code = e.key.nativeKeyCode
         val down = e.type == KeyEventType.KeyDown
         val repeat = e.nativeKeyEvent.repeatCount > 0

@@ -1,15 +1,14 @@
 package com.arshe.tvos.ui
 
 import androidx.compose.animation.Crossfade
-import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.infiniteRepeatable
-import androidx.compose.animation.core.rememberInfiniteTransition
-import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.core.LinearEasing
-import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.LinearOutSlowInEasing
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.remember
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -95,10 +94,14 @@ private fun BackdropFill(b: Backdrop) {
 }
 
 @Composable
-fun KenBurns(periodMs: Int = 30_000, content: @Composable BoxScope.() -> Unit) {
-    val t by rememberInfiniteTransition(label = "kb").animateFloat(
-        0f, 1f, infiniteRepeatable(tween(periodMs, easing = FastOutSlowInEasing), RepeatMode.Reverse), label = "kbT",
-    )
+/**
+ * One slow push-in per image, then the frame holds still. A looping pan redraws the whole
+ * screen 60×/s and kept ~30 % of a CPU core busy on an idle home screen.
+ */
+fun KenBurns(periodMs: Int = 20_000, content: @Composable BoxScope.() -> Unit) {
+    val anim = remember { Animatable(0f) }
+    LaunchedEffect(Unit) { anim.animateTo(1f, tween(periodMs, easing = LinearOutSlowInEasing)) }
+    val t by anim.asState()
     Box(
         Modifier.fillMaxSize().graphicsLayer {
             val s = 1.02f + 0.07f * t

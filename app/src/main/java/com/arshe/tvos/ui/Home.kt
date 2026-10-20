@@ -40,6 +40,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shadow
+import androidx.compose.ui.graphics.CompositingStrategy
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.style.TextAlign
@@ -101,6 +102,11 @@ fun HomeScreen(l: Launcher, time: String, vpn: Boolean) {
     Box(Modifier.fillMaxSize()) {
         if (hero != null) Billboard(hero)
 
+        // Everything above the moving billboard is cached as one GPU texture: while only the
+        // background animates, each frame is a texture blit instead of re-drawing every
+        // row, card and text.
+        Box(Modifier.fillMaxSize().graphicsLayer { compositingStrategy = CompositingStrategy.Offscreen }) {
+
         // Copy: always visible, it describes whatever is focused.
         Box(Modifier.offset(X.dp, 170.dp).size(1100.dp, 390.dp), contentAlignment = Alignment.BottomStart) {
             HeroCopy(hero)
@@ -150,6 +156,7 @@ fun HomeScreen(l: Launcher, time: String, vpn: Boolean) {
         // Top bar fades over the billboard.
         Box(Modifier.fillMaxWidth().height(170.dp).background(Brush.verticalGradient(0f to Color.Black.copy(.75f), 1f to Color.Transparent)))
         TopBar(l, time, vpn)
+        }
     }
 }
 
