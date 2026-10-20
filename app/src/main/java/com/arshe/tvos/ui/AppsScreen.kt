@@ -23,6 +23,7 @@ import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.wrapContentHeight
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicText
 import androidx.compose.runtime.Composable
@@ -103,7 +104,12 @@ private fun AppList(l: Launcher, apps: List<HeroItem>, inList: Boolean, move: Bo
     val first = (l.appsFocus - (VISIBLE - 2)).coerceIn(0, (apps.size - VISIBLE).coerceAtLeast(0))
     val scroll by animateFloatAsState(-(first * (ROW_H + ROW_GAP)).toFloat(), tween(300, easing = J.Glide), label = "list")
     Box(Modifier.offset(LIST_X.dp, LIST_Y.dp).size(620.dp, (VISIBLE * (ROW_H + ROW_GAP)).dp).clip(RoundedCornerShape(12.dp))) {
-        Column(Modifier.graphicsLayer { translationY = scroll }, verticalArrangement = Arrangement.spacedBy(ROW_GAP.dp)) {
+        // Unbounded: the column is taller than the window and slides inside it; bounded, rows
+        // past the 8th would be measured with zero height and never show up.
+        Column(
+            Modifier.wrapContentHeight(Alignment.Top, unbounded = true).graphicsLayer { translationY = scroll },
+            verticalArrangement = Arrangement.spacedBy(ROW_GAP.dp),
+        ) {
             apps.forEachIndexed { i, app ->
                 key(app.key) { AppRow(app, i, on = inList && i == l.appsFocus, selected = i == l.appsFocus, moving = move && i == l.appsFocus) }
             }
