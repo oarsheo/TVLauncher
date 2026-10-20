@@ -23,6 +23,7 @@ import com.arshe.tvos.data.Brand
 import com.arshe.tvos.data.AppsRepository
 import com.arshe.tvos.data.JointSpace
 import com.arshe.tvos.data.LocalAdb
+import com.arshe.tvos.data.Maintenance
 import com.arshe.tvos.data.Updater
 import com.arshe.tvos.data.HeroItem
 import com.arshe.tvos.data.ContentRow
@@ -372,9 +373,17 @@ class Launcher(
         }
     }
 
+    /** In-launcher screensaver, for systems where apps can't start the system one. */
+    var saverOn by mutableStateOf(false)
+    var saverItem: HeroItem? = null
+    private val saverDowns = mutableSetOf<Int>()
+
     fun startScreensaver() {
-        // SystemUI's public "start dreaming now" entry point.
-        launch(Intent(Intent.ACTION_MAIN).setClassName("com.android.systemui", "com.android.systemui.Somnambulator"))
+        // SystemUI's public "start dreaming now" entry point (gone on newer Android TV builds).
+        val dream = Intent(Intent.ACTION_MAIN).setClassName("com.android.systemui", "com.android.systemui.Somnambulator")
+        if (context.packageManager.resolveActivity(dream, 0) != null) { launch(dream); return }
+        saverOn = true
+        if (Maintenance.due(context, 20)) scope.launch { Maintenance.run(context) }
     }
 
     /** Needs shell rights: goes through the TV's own adbd (asks once to allow the key). */
@@ -473,6 +482,17 @@ class Launcher(
             } else if (!down && holdJob != null) {
                 holdJob?.cancel(); holdJob = null
                 orderedTiles.getOrNull(appsFocus)?.let { run(it.action) }
+            }
+            return true
+        }
+        if (saverOn) {
+            // Any key wakes the in-app screensaver; OK also opens what it shows. Only keys
+            // pressed while it is up count (the OK that started it must not close it).
+            if (down) saverDowns += code
+            else if (saverDowns.remove(code)) {
+                saverOn = false
+                saverDowns.clear()
+                if (k == K.Ok) (saverItem?.action as? Action.Launch)?.let { run(it) }
             }
             return true
         }

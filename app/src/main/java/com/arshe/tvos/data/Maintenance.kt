@@ -12,11 +12,13 @@ import androidx.core.content.edit
 object Maintenance {
     private val APPS = listOf(
         PKG_NETFLIX, PKG_YOUTUBE, PKG_MEGOGO, PKG_APPLETV,
-        "com.nordvpn.android", "com.google.android.inputmethod.latin", "com.arshe.tvos",
+        "com.nordvpn.android", "com.google.android.inputmethod.latin",
     )
 
     // Only apps whose code is no longer fully compiled; a no-op on most days.
+    // (The launcher itself is left out: its bundled baseline profile keeps it in speed-profile.)
     private val SCRIPT = "D=\$(dumpsys package dexopt); for p in ${APPS.joinToString(" ")}; do " +
+        "pm path \$p >/dev/null 2>&1 || continue; " +
         "case \"\$(echo \"\$D\" | grep -A2 \"\\[\$p\\]\" | grep -m1 -o \"status=[a-z-]*\")\" in " +
         "status=speed) ;; *) echo \"compile \$p\"; cmd package compile -m speed -f \$p;; esac; done; " +
         "sm fstrim; pm trim-caches 1500M; echo done"

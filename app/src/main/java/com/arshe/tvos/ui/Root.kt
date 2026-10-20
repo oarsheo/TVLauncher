@@ -20,6 +20,7 @@ import com.arshe.tvos.data.AMBI_MODES
 import com.arshe.tvos.data.AppsRepository
 import com.arshe.tvos.data.JointSpace
 import com.arshe.tvos.data.SLEEP_STEPS
+import com.arshe.tvos.data.SaverStore
 import com.arshe.tvos.data.Updater
 import com.arshe.tvos.data.rememberClock
 import com.arshe.tvos.data.rememberNetStatus
@@ -95,6 +96,7 @@ fun LauncherRoot(l: Launcher) {
             )
             if (l.screen == Screen.Apps || l.screen == Screen.Sources) StatusBar(time, net.vpn, net.online, Modifier.align(Alignment.TopEnd))
             ControlSheet(l, time)
+            if (l.saverOn) Screensaver(SaverStore.items) { l.saverItem = it }
         }
     }
     LaunchedEffect(Unit) { focus.requestFocus() }
