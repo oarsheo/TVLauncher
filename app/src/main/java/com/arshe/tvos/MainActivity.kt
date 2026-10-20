@@ -2,6 +2,7 @@ package com.arshe.tvos
 
 import android.content.Intent
 import android.os.Bundle
+import android.os.SystemClock
 import androidx.activity.ComponentActivity
 import androidx.activity.OnBackPressedCallback
 import androidx.activity.compose.setContent
@@ -23,6 +24,7 @@ import com.arshe.tvos.data.PKG_APPLETV
 import com.arshe.tvos.data.PKG_MEGOGO
 import com.arshe.tvos.data.PKG_NETFLIX
 import com.arshe.tvos.data.PKG_YOUTUBE
+import com.arshe.tvos.data.LocalAdb
 import com.arshe.tvos.data.Lookup
 import com.arshe.tvos.data.SaverStore
 import com.arshe.tvos.data.Secrets
@@ -61,6 +63,17 @@ class MainActivity : ComponentActivity() {
         lifecycleScope.launch { NowPlaying.items.collect { launcher.recents = it } }
 
         setContent { LauncherRoot(launcher) }
+
+        // Netflix and Megogo start themselves on BOOT_COMPLETED (Android 11 won't let shell
+        // disable those receivers). Shortly after boot, stop them unless they're on screen.
+        if (SystemClock.elapsedRealtime() < 10 * 60 * 1000L) lifecycleScope.launch {
+            delay(90_000)
+            LocalAdb.shell(
+                this@MainActivity,
+                "f=\$(dumpsys window | grep mCurrentFocus); for p in $PKG_NETFLIX $PKG_MEGOGO; do " +
+                    "case \"\$f\" in *\$p*) ;; *) am force-stop \$p;; esac; done",
+            )
+        }
 
         // OTA: look for a new release now and every 6 hours; install only while hidden.
         lifecycleScope.launch {
@@ -118,7 +131,7 @@ class MainActivity : ComponentActivity() {
             by[PKG_NETFLIX]?.let { put(PKG_NETFLIX) { JustWatchSource(this@MainActivity, PKG_NETFLIX, "nfx", "Netflix", it.brand, it.art).rows() } }
             by[PKG_APPLETV]?.let { put(PKG_APPLETV) { JustWatchSource(this@MainActivity, PKG_APPLETV, "atp", "Apple TV+", it.brand, it.art).rows() } }
             by[PKG_MEGOGO]?.let { put(PKG_MEGOGO) { MegogoSource(this@MainActivity, it.brand, it.art).rows() } }
-            by[PKG_YOUTUBE]?.let { put(PKG_YOUTUBE) { YouTubeSource(this@MainActivity).rows() } }
+            by[PKG_YOUTUBE]?.let { put(PKG_YOUTUBE) { YouTubeSource(this@MainActivity, it.brand).rows() } }
         }
         for ((pkg, load) in sources) lifecycleScope.launch {
             val rows = withContext(Dispatchers.IO) { load() }
@@ -131,11 +144,12 @@ class MainActivity : ComponentActivity() {
     /** Warm the image cache so the billboard and the first cards show artwork on first focus. */
     private fun prefetch(rows: List<ContentRow>) {
         lifecycleScope.launch(Dispatchers.IO) {
-            rows.forEachIndexed { r, row ->
-                row.items.take(8).forEachIndexed { i, it ->
+            // Only what the first screen shows: the rest loads on demand, keeping startup memory low.
+            rows.take(1).forEachIndexed { r, row ->
+                row.items.take(5).forEachIndexed { i, it ->
                     val card = if (row.portrait) it.cover ?: it.poster else it.poster
                     card?.let { u -> Images.load(this@MainActivity, u, if (row.portrait) 200 else 400) }
-                    if (r == 0 && i < 6) {
+                    if (r == 0 && i < 2) {
                         val hero = if (it.key.startsWith("mg:")) Lookup.megogoBackdrop(this@MainActivity, it.key.removePrefix("mg:")) ?: it.poster else it.poster
                         hero?.let { u -> Images.load(this@MainActivity, u, HERO_PX) }
                     }

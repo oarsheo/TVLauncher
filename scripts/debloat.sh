@@ -55,7 +55,6 @@ TIER2_PKGS=(
   org.droidtv.nettv.market           # Philips App Gallery
   org.droidtv.nettvapps
   org.droidtv.nettv_launcherapp
-  org.droidtv.nettvregistration      # Philips account registration
   org.droidtv.eum                    # built-in e-manual
   org.droidtv.dropboxprovider
   org.droidtv.fastip                 # Philips TV+ FAST channels

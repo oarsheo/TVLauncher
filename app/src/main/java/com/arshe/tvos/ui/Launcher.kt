@@ -160,7 +160,7 @@ class Launcher(
         val heads = CONTENT_APPS.mapNotNull { pkg ->
             val first = pages[pkg]?.firstOrNull() ?: return@mapNotNull null
             val name = by[pkg]?.title ?: return@mapNotNull null
-            ContentRow("$name · ${first.title.substringBefore(" на ")}", first.items.take(12), first.portrait)
+            ContentRow("$name · ${first.title.substringBefore(" на ")}", first.items.take(12), first.portrait, by[pkg]?.brand)
         }
         val mine = recentItems(null)
         return listOfNotNull(mine.takeIf { it.isNotEmpty() }?.let { ContentRow("Продолжить просмотр", it) }) + heads
@@ -297,10 +297,10 @@ class Launcher(
             val by = tiles.associateBy { it.key }
             val found = withContext(Dispatchers.IO) {
                 listOfNotNull(
-                    by[PKG_NETFLIX]?.let { t -> async { ContentRow("Netflix", JustWatchSource(context, PKG_NETFLIX, "nfx", "Netflix", t.brand, t.art).search(text)) } },
-                    by[PKG_MEGOGO]?.let { t -> async { ContentRow("MEGOGO", MegogoSource(context, t.brand, t.art).search(text), portrait = true) } },
-                    by[PKG_APPLETV]?.let { t -> async { ContentRow("Apple TV+", JustWatchSource(context, PKG_APPLETV, "atp", "Apple TV+", t.brand, t.art).search(text)) } },
-                    by[PKG_YOUTUBE]?.let { async { ContentRow("YouTube", YouTubeSource(context).search(text)) } },
+                    by[PKG_NETFLIX]?.let { t -> async { ContentRow("Netflix", JustWatchSource(context, PKG_NETFLIX, "nfx", "Netflix", t.brand, t.art).search(text), brand = t.brand) } },
+                    by[PKG_MEGOGO]?.let { t -> async { ContentRow("MEGOGO", MegogoSource(context, t.brand, t.art).search(text), portrait = true, brand = t.brand) } },
+                    by[PKG_APPLETV]?.let { t -> async { ContentRow("Apple TV+", JustWatchSource(context, PKG_APPLETV, "atp", "Apple TV+", t.brand, t.art).search(text), brand = t.brand) } },
+                    by[PKG_YOUTUBE]?.let { t -> async { ContentRow("YouTube", YouTubeSource(context, t.brand).search(text), brand = t.brand) } },
                 ).map { it.await() }.filter { it.items.isNotEmpty() }
             }
             results = found

@@ -144,7 +144,7 @@ private fun Results(l: Launcher, modifier: Modifier) {
                 key(row.title) {
                     val a by animateFloatAsState(if (inResults && r < l.sRow) 0f else 1f, tween(250), label = "ra")
                     Column(Modifier.offset(0.dp, tops[r].dp).graphicsLayer { alpha = a }) {
-                        BasicText(row.title, style = jText(28, 700))
+                        RowTitle(row.title, row.brand, size = 28)
                         Spacer(Modifier.height(14.dp))
                         val idx = l.sIdx[r] ?: 0
                         Strip(

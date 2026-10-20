@@ -48,7 +48,20 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.em
 import androidx.compose.ui.unit.sp
 import com.arshe.tvos.data.HERO_PX
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.expandHorizontally
+import androidx.compose.animation.shrinkHorizontally
+import androidx.compose.foundation.Canvas
+import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.StrokeJoin
+import androidx.compose.ui.graphics.drawscope.Stroke
 import com.arshe.tvos.data.ContentRow
+import com.arshe.tvos.data.KEY_ALL
+import com.arshe.tvos.data.KEY_SOURCES
+import com.arshe.tvos.data.KEY_TV
 import com.arshe.tvos.data.HeroItem
 import com.arshe.tvos.data.Lookup
 import com.arshe.tvos.data.rememberPoster
@@ -108,7 +121,7 @@ fun HomeScreen(l: Launcher, time: String, vpn: Boolean) {
                 key(l.tabIdx, row.title) {
                     val a by animateFloatAsState(if (inRows && r < l.rowFocus) 0f else 1f, tween(300), label = "rowA")
                     Column(Modifier.offset(X.dp, tops[r].dp).graphicsLayer { alpha = a }) {
-                        BasicText(row.title, style = jText(30, 700))
+                        RowTitle(row.title, row.brand)
                         Spacer(Modifier.height(16.dp))
                         val focused = if (inRows && l.rowFocus == r) l.rowIdx[r] ?: 0 else null
                         val idx = l.rowIdx[r] ?: 0
@@ -150,11 +163,9 @@ private fun TopBar(l: Launcher, time: String, vpn: Boolean) {
                 Box(Modifier.padding(horizontal = 18.dp).size(2.dp, 30.dp).background(Color.White.copy(.25f)))
             }
             NavChip(
-                label = item.label,
+                item = item,
                 focused = l.zone == Zone.Nav && l.navIdx == i,
                 selected = item.isTab && item.tile.key == selectedKey,
-                accent = item.tile.brand.color,
-                dim = !item.isTab,
             )
         }
         Spacer(Modifier.weight(1f))
@@ -166,27 +177,75 @@ private fun TopBar(l: Launcher, time: String, vpn: Boolean) {
     }
 }
 
+/**
+ * Top-bar entry. Content apps show their real icon and name; shortcuts are icon-only and
+ * reveal their name while focused.
+ */
 @Composable
-private fun NavChip(label: String, focused: Boolean, selected: Boolean, accent: Color, dim: Boolean) {
+private fun NavChip(item: NavItem, focused: Boolean, selected: Boolean) {
     val s by animateFloatAsState(if (focused) 1.06f else 1f, tween(200, easing = J.ButtonSpring), label = "nav")
     val ink = when {
         focused -> Color.Black
         selected -> Color.White
-        dim -> Color.White.copy(.55f)
-        else -> Color.White.copy(.7f)
+        !item.isTab -> Color.White.copy(.6f)
+        else -> Color.White.copy(.72f)
     }
+    val showLabel = item.isTab || focused
     Box(contentAlignment = Alignment.BottomCenter) {
-        Box(
+        Row(
             Modifier.graphicsLayer { scaleX = s; scaleY = s }
-                .clip(RoundedCornerShape(26.dp))
+                .height(56.dp)
+                .clip(RoundedCornerShape(28.dp))
                 .background(if (focused) Color.White else Color.Transparent)
-                .padding(horizontal = 22.dp, vertical = 10.dp),
+                .padding(horizontal = if (item.isTab) 18.dp else 14.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
         ) {
-            BasicText(label, style = jText(28, if (selected || focused) 800 else 600, ink))
+            when {
+                !item.isTab -> NavGlyph(item.tile.key, ink)
+                item.tile.brand.icon != null -> Box(Modifier.graphicsLayer { alpha = if (selected || focused) 1f else .75f }) { BrandBadge(item.tile.brand, 34) }
+            }
+            AnimatedVisibility(showLabel, enter = fadeIn(tween(180)) + expandHorizontally(tween(220)), exit = fadeOut(tween(120)) + shrinkHorizontally(tween(180))) {
+                BasicText(item.label, style = jText(28, if (selected || focused) 800 else 600, ink))
+            }
         }
         // Selected app: a short brand-coloured underline.
         val u by animateFloatAsState(if (selected && !focused) 1f else 0f, tween(250), label = "u")
-        Box(Modifier.offset(y = 8.dp).graphicsLayer { alpha = u; scaleX = .4f + .6f * u }.size(36.dp, 4.dp).clip(RoundedCornerShape(2.dp)).background(accent))
+        Box(Modifier.offset(y = 6.dp).graphicsLayer { alpha = u; scaleX = .4f + .6f * u }.size(36.dp, 4.dp).clip(RoundedCornerShape(2.dp)).background(item.tile.brand.color))
+    }
+}
+
+/** Line icons for the top-bar shortcuts (30×30). */
+@Composable
+private fun NavGlyph(key: String, ink: Color) {
+    Canvas(Modifier.size(30.dp)) {
+        val st = Stroke(2.6f, cap = StrokeCap.Round, join = StrokeJoin.Round)
+        when (key) {
+            SEARCH_TILE.key -> {
+                drawCircle(ink, 9f, Offset(13f, 13f), style = st)
+                drawLine(ink, Offset(20f, 20f), Offset(27f, 27f), 2.8f, StrokeCap.Round)
+            }
+            KEY_TV -> {
+                drawRoundRect(ink, Offset(3f, 5f), Size(24f, 16f), CornerRadius(3f), style = st)
+                drawLine(ink, Offset(10f, 26f), Offset(20f, 26f), 2.6f, StrokeCap.Round)
+            }
+            KEY_SOURCES -> {
+                drawPath(Path().apply {
+                    moveTo(3f, 9f); lineTo(27f, 9f); lineTo(27f, 17f); lineTo(23f, 22f); lineTo(7f, 22f); lineTo(3f, 17f); close()
+                }, ink, style = st)
+                drawLine(ink, Offset(10f, 14f), Offset(20f, 14f), 2.6f, StrokeCap.Round)
+            }
+            KEY_ALL -> listOf(4f to 4f, 17f to 4f, 4f to 17f, 17f to 17f).forEach { (x, y) ->
+                drawRoundRect(ink, Offset(x, y), Size(9f, 9f), CornerRadius(2.5f))
+            }
+            else -> {
+                listOf(8f, 15f, 22f).forEach { y -> drawLine(ink, Offset(4f, y), Offset(26f, y), 2.6f, StrokeCap.Round) }
+                listOf(10f to 8f, 20f to 15f, 13f to 22f).forEach { (x, y) ->
+                    drawCircle(if (ink == Color.Black) Color.White else Color.Black, 3.2f, Offset(x, y))
+                    drawCircle(ink, 3.2f, Offset(x, y), style = Stroke(2.4f))
+                }
+            }
+        }
     }
 }
 

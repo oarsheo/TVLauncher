@@ -155,6 +155,10 @@ fun FocusCard(
 
 @Composable
 fun BrandBadge(brand: Brand, size: Int) {
+    brand.icon?.let {
+        Image(it, null, Modifier.size(size.dp).clip(RoundedCornerShape((size / 4).dp)), contentScale = ContentScale.Crop)
+        return
+    }
     Box(
         Modifier.size(size.dp).clip(RoundedCornerShape((size / 4).dp)).background(brand.color),
         contentAlignment = Alignment.Center,
@@ -308,5 +312,14 @@ fun SwitchIcon(ink: Color) {
         val st = Stroke(2.6f, cap = StrokeCap.Round, join = StrokeJoin.Round)
         drawPath(Path().apply { moveTo(4f, 9f); lineTo(20f, 9f); lineTo(16f, 5f) }, ink, style = st)
         drawPath(Path().apply { moveTo(22f, 17f); lineTo(6f, 17f); lineTo(10f, 21f) }, ink, style = st)
+    }
+}
+
+/** Row header; rows that belong to one service lead with its logo. */
+@Composable
+fun RowTitle(title: String, brand: Brand?, size: Int = 30) {
+    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+        if (brand != null) BrandBadge(brand, size + 6)
+        BasicText(title, style = jText(size, 700))
     }
 }

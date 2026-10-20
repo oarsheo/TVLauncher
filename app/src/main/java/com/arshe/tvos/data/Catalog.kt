@@ -13,7 +13,7 @@ import java.net.HttpURLConnection
 import java.net.URL
 
 /** One horizontal row on an app's page. */
-data class ContentRow(val title: String, val items: List<HeroItem>, val portrait: Boolean = false)
+data class ContentRow(val title: String, val items: List<HeroItem>, val portrait: Boolean = false, val brand: Brand? = null)
 
 const val PKG_NETFLIX = "com.netflix.ninja"
 const val PKG_MEGOGO = "com.megogo.application"
@@ -211,17 +211,20 @@ class MegogoSource(private val context: Context, private val brand: Brand, priva
 
 // ---------------------------------------------------------------- YouTube
 
-class YouTubeSource(private val context: Context) {
+class YouTubeSource(private val context: Context, private val brand: Brand? = null) {
     private val trends = YouTubeTrends(context)
 
-    fun search(text: String): List<HeroItem> = trends.search(text)
+    fun search(text: String): List<HeroItem> = trends.search(text).branded()
+
+    // The API parser only knows a lettered badge; use the app's real icon when we have it.
+    private fun List<HeroItem>.branded() = if (brand == null) this else map { it.copy(brand = brand) }
 
     fun rows(): List<ContentRow> {
         if (Secrets.youtubeKey.isBlank()) return emptyList()
         return listOfNotNull(
-            trends.load().takeIf { it.isNotEmpty() }?.let { ContentRow("В тренде", it) },
-            trends.load(category = "10").takeIf { it.isNotEmpty() }?.let { ContentRow("Музыка", it) },
-            trends.load(category = "20").takeIf { it.isNotEmpty() }?.let { ContentRow("Игры", it) },
+            trends.load().branded().takeIf { it.isNotEmpty() }?.let { ContentRow("В тренде", it) },
+            trends.load(category = "10").branded().takeIf { it.isNotEmpty() }?.let { ContentRow("Музыка", it) },
+            trends.load(category = "20").branded().takeIf { it.isNotEmpty() }?.let { ContentRow("Игры", it) },
         )
     }
 }

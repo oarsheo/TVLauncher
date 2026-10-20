@@ -4,7 +4,9 @@ import android.content.Context
 import android.content.Intent
 import android.provider.Settings
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.core.content.edit
+import androidx.core.graphics.drawable.toBitmap
 import com.arshe.tvos.ui.Art
 import com.arshe.tvos.ui.Arts
 
@@ -55,7 +57,7 @@ class AppsRepository(private val context: Context) {
                 HeroItem(
                     key = pkg,
                     app = label,
-                    brand = known?.brand ?: GRAPHITE.copy(letter = label.take(1)),
+                    brand = (known?.brand ?: GRAPHITE.copy(letter = label.take(1))).copy(icon = icon(pkg)),
                     title = label,
                     meta = known?.meta ?: "Приложение",
                     desc = known?.desc ?: "Открыть $label",
@@ -81,6 +83,10 @@ class AppsRepository(private val context: Context) {
         val rest = all.values.filter { it !in ordered }.sortedBy { it.title.lowercase() }
         return ordered + rest
     }
+
+    private fun icon(pkg: String) = runCatching {
+        context.packageManager.getApplicationIcon(pkg).toBitmap(128, 128).asImageBitmap()
+    }.getOrNull()
 
     fun saveOrder(keys: List<String>) = prefs.edit { putString("order", keys.joinToString(",")) }
 

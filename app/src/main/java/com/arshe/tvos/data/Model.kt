@@ -2,9 +2,11 @@ package com.arshe.tvos.data
 
 import android.content.Intent
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ImageBitmap
 import com.arshe.tvos.ui.Art
 
-data class Brand(val color: Color, val letter: String, val ink: Color = Color.White)
+/** How an app is marked in the UI: its real launcher icon when we have it, else a lettered tile. */
+data class Brand(val color: Color, val letter: String, val ink: Color = Color.White, val icon: ImageBitmap? = null)
 
 sealed interface Action {
     data class Launch(val intent: Intent) : Action
