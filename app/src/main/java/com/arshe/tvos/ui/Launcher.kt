@@ -22,6 +22,11 @@ import com.arshe.tvos.data.JointSpace
 import com.arshe.tvos.data.LocalAdb
 import com.arshe.tvos.data.HeroItem
 import com.arshe.tvos.data.ContentRow
+import com.arshe.tvos.data.Detail
+import com.arshe.tvos.data.DetailsRepository
+import com.arshe.tvos.data.Episode
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import com.arshe.tvos.data.KEY_SETTINGS
 import com.arshe.tvos.data.KEY_SOURCES
 import com.arshe.tvos.data.KEY_TV
@@ -38,7 +43,7 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
-enum class Screen { Home, Apps, Sources }
+enum class Screen { Home, Apps, Sources, Detail }
 
 /** Nav = top app bar, Hero = buttons under the billboard, Row = content rows / apps grid / inputs, Rail = left menu. */
 enum class Zone { Rail, Nav, Hero, Row }
@@ -257,7 +262,108 @@ class Launcher(
     fun heroButtons(item: HeroItem?): List<String> = when {
         item == null -> emptyList()
         item === tab -> listOf("Открыть ${item.title}")
+        hasDetails(item) -> listOf(item.primary, "Подробнее")
         else -> listOf(item.primary, "Открыть ${item.app}")
+    }
+
+    // ---------------- details ----------------
+
+    private val detailsRepo = DetailsRepository(context)
+    var detailItem by mutableStateOf<HeroItem?>(null)
+    var detail by mutableStateOf<Detail?>(null)
+    var detailLoading by mutableStateOf(false)
+    var episodes by mutableStateOf(emptyList<Episode>())
+    /** 0 = buttons, 1 = season chips, 2 = episodes / similar row. */
+    var dZone by mutableIntStateOf(0)
+    var dBtn by mutableIntStateOf(0)
+    var dSeason by mutableIntStateOf(0)
+    var dIdx by mutableIntStateOf(0)
+    private var detailFrom = Screen.Home
+    private var seasonJob: Job? = null
+
+    /** The content app an item belongs to (labels differ: "Apple TV+" vs "Apple TV", "Megogo" vs "MEGOGO"). */
+    fun ownerOf(item: HeroItem): HeroItem? =
+        tiles.firstOrNull { it.key in CONTENT_APPS && it.title.lowercase().take(5) == item.app.lowercase().take(5) }
+
+    private fun hasDetails(item: HeroItem): Boolean = item.ref != null ||
+        (item.key.startsWith("np:") && ownerOf(item)?.key in setOf(PKG_NETFLIX, PKG_MEGOGO, PKG_APPLETV))
+
+    val detailRow: List<Any>
+        get() = if (detail?.seasons?.isNotEmpty() == true) episodes else detail?.similar.orEmpty()
+
+    fun openDetail(item: HeroItem) {
+        if (screen != Screen.Detail) detailFrom = screen
+        detailItem = item
+        detail = null
+        episodes = emptyList()
+        dZone = 0; dBtn = 0; dSeason = 0; dIdx = 0
+        screen = Screen.Detail
+        val owner = ownerOf(item) ?: return
+        detailLoading = true
+        scope.launch {
+            val d = withContext(Dispatchers.IO) { detailsRepo.load(item, owner.key, owner.brand, owner.art) }
+            if (detailItem !== item) return@launch
+            detail = d
+            episodes = d?.firstEpisodes.orEmpty()
+            detailLoading = false
+        }
+    }
+
+    private fun closeDetail() {
+        screen = detailFrom
+        detailItem = null
+    }
+
+    private fun selectSeason(i: Int) {
+        val d = detail ?: return
+        val season = d.seasons.getOrNull(i) ?: return
+        dSeason = i
+        dIdx = 0
+        val owner = detailItem?.let { ownerOf(it) } ?: return
+        seasonJob?.cancel()
+        seasonJob = scope.launch {
+            episodes = emptyList()
+            episodes = withContext(Dispatchers.IO) { detailsRepo.episodes(season, owner.key) }
+        }
+    }
+
+    private fun detailKey(k: K) {
+        val item = detailItem ?: return
+        val d = detail
+        val zones = listOfNotNull(0, 1.takeIf { (d?.seasons?.size ?: 0) > 1 }, 2.takeIf { detailRow.isNotEmpty() })
+        fun move(dir: Int) { zones.getOrNull(zones.indexOf(dZone) + dir)?.let { dZone = it } }
+        when (dZone) {
+            0 -> when (k) {
+                K.Left -> if (dBtn > 0) dBtn--
+                K.Right -> if (dBtn < 1) dBtn++
+                K.Down -> move(1)
+                K.Ok -> run(if (dBtn == 0) item.action else ownerOf(item)?.action ?: item.action)
+                K.Back -> closeDetail()
+                else -> Unit
+            }
+            1 -> when (k) {
+                K.Left -> if (dSeason > 0) selectSeason(dSeason - 1)
+                K.Right -> if (dSeason < (d?.seasons?.size ?: 0) - 1) selectSeason(dSeason + 1)
+                K.Up -> move(-1)
+                K.Down -> move(1)
+                K.Back -> closeDetail()
+                else -> Unit
+            }
+            else -> {
+                val row = detailRow
+                when (k) {
+                    K.Left -> if (dIdx > 0) dIdx--
+                    K.Right -> if (dIdx < row.size - 1) dIdx++
+                    K.Up -> move(-1)
+                    K.Back -> closeDetail()
+                    K.Ok -> when (val x = row.getOrNull(dIdx)) {
+                        is Episode -> run(x.action ?: item.action)
+                        is HeroItem -> openDetail(x)
+                    }
+                    else -> Unit
+                }
+            }
+        }
     }
 
     // ---------------- keys ----------------
@@ -300,6 +406,7 @@ class Launcher(
             screen == Screen.Home -> homeKey(k)
             screen == Screen.Apps -> appsKey(k)
             screen == Screen.Sources -> sourcesKey(k)
+            screen == Screen.Detail -> detailKey(k)
         }
         return true
     }
@@ -345,7 +452,14 @@ class Launcher(
                 K.Right -> heroBtn = (heroBtn + 1).coerceAtMost(heroButtons(heroItem).size - 1)
                 K.Up, K.Back -> zone = Zone.Nav
                 K.Down -> if (rows.isNotEmpty()) { zone = Zone.Row; rowFocus = 0 }
-                K.Ok -> heroItem?.let { item -> run(if (heroBtn == 1 || item === tab) tab?.action ?: item.action else item.action) }
+                K.Ok -> heroItem?.let { item ->
+                    when {
+                        item === tab -> run(item.action)
+                        heroBtn == 1 && hasDetails(item) -> openDetail(item)
+                        heroBtn == 1 -> run(tab?.action ?: item.action)
+                        else -> run(item.action)
+                    }
+                }
                 else -> Unit
             }
             Zone.Row -> {
@@ -356,7 +470,7 @@ class Launcher(
                     K.Right -> if (i < row.items.size - 1) rowIdx[rowFocus] = i + 1
                     K.Up -> if (rowFocus == 0) { zone = Zone.Hero; heroBtn = 0 } else rowFocus--
                     K.Down -> if (rowFocus < rows.size - 1) rowFocus++
-                    K.Ok -> run(row.items[i].action)
+                    K.Ok -> row.items[i].let { if (it.ref != null) openDetail(it) else run(it.action) }
                     K.Back -> { zone = Zone.Nav; navIdx = tabIdx; resetPage() }
                     else -> Unit
                 }

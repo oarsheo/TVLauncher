@@ -84,12 +84,15 @@ class JustWatchSource(
             .put("query", Q)
             .put("variables", JSONObject().put("country", "UA").put("language", "ru").put("first", 20).put("filter", filter))
             .toString()
-        val json = cachedFetch(context, "jw_${code}_$name") { http("https://apis.justwatch.com/graphql", body) } ?: return emptyList()
+        val json = cachedFetch(context, "jw2_${code}_$name") { http("https://apis.justwatch.com/graphql", body) } ?: return emptyList()
         return runCatching { parse(json) }.onFailure { Log.w(TAG, "jw parse", it) }.getOrDefault(emptyList())
     }
 
-    private fun parse(json: String): List<HeroItem> {
-        val edges = JSONObject(json).getJSONObject("data").getJSONObject("popularTitles").getJSONArray("edges")
+    private fun parse(json: String): List<HeroItem> =
+        nodes(JSONObject(json).getJSONObject("data").getJSONObject("popularTitles").getJSONArray("edges"))
+
+    /** Turns JustWatch title nodes ({edges:[{node}]}) into items; shared with "similar titles". */
+    fun nodes(edges: JSONArray): List<HeroItem> {
         return (0 until edges.length()).mapNotNull { i ->
             val n = edges.getJSONObject(i).getJSONObject("node")
             val c = n.getJSONObject("content")
@@ -103,6 +106,7 @@ class JustWatchSource(
             val kind = if (n.optString("objectType") == "SHOW") "Сериал" else "Фильм"
             HeroItem(
                 key = "jw:$code:$title",
+                ref = n.optString("id").takeIf { it.isNotBlank() }?.let { "jw:$it" },
                 app = app,
                 brand = brand,
                 title = title,
@@ -122,10 +126,12 @@ class JustWatchSource(
         "https://images.justwatch.com" + path.replace("{profile}", profile).replace("/.{format}", "/i.webp")
 
     companion object {
-        private const val Q = "query(\$country:Country!,\$language:Language!,\$first:Int!,\$filter:TitleFilter){" +
-            "popularTitles(country:\$country,first:\$first,filter:\$filter){edges{node{objectType " +
+        /** Fields of a title node every list query asks for. */
+        const val NODE = "id objectType " +
             "content(country:\$country,language:\$language){title shortDescription originalReleaseYear genres{shortName} backdrops{backdropUrl} posterUrl} " +
-            "offers(country:\$country,platform:WEB){standardWebURL package{shortName}}}}}}"
+            "offers(country:\$country,platform:WEB){standardWebURL package{shortName}}"
+        private const val Q = "query(\$country:Country!,\$language:Language!,\$first:Int!,\$filter:TitleFilter){" +
+            "popularTitles(country:\$country,first:\$first,filter:\$filter){edges{node{$NODE}}}}"
     }
 }
 
@@ -160,6 +166,7 @@ class MegogoSource(private val context: Context, private val brand: Brand, priva
                 val img = IMG.find(c.value)?.groupValues?.get(1)?.substringBefore("/pt/") ?: return@mapNotNull null
                 HeroItem(
                     key = "mg:$id",
+                    ref = "mg:$id",
                     app = "Megogo",
                     brand = brand,
                     title = name,

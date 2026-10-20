@@ -193,7 +193,7 @@ private fun NavChip(label: String, focused: Boolean, selected: Boolean, accent: 
 // ---------------------------------------------------------------- billboard
 
 @Composable
-private fun Billboard(item: HeroItem) {
+fun Billboard(item: HeroItem) {
     Box(Modifier.fillMaxSize()) {
         Crossfade(item, animationSpec = tween(700, delayMillis = 200), label = "billboard") { b ->
             // Megogo cards only carry portrait posters; fetch the title's landscape backdrop first.

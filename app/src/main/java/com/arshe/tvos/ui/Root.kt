@@ -79,18 +79,19 @@ fun LauncherRoot(l: Launcher) {
                     Screen.Home -> HomeScreen(l, time, net.vpn)
                     Screen.Apps -> AppsScreen(l)
                     Screen.Sources -> SourcesScreen(l)
+                    Screen.Detail -> DetailScreen(l)
                 }
             }
-            if (l.visible && l.screen != Screen.Home) Rail(
+            if (l.visible && l.screen != Screen.Home && l.screen != Screen.Detail) Rail(
                 open = l.zone == Zone.Rail && !l.sheetOpen,
                 focus = l.railFocus,
                 active = when (l.screen) {
                     Screen.Home -> RailItem.Home
                     Screen.Apps -> RailItem.Apps
-                    Screen.Sources -> RailItem.Sources
+                    else -> RailItem.Sources
                 },
             )
-            if (l.screen != Screen.Home) StatusBar(time, net.vpn, net.online, Modifier.align(Alignment.TopEnd))
+            if (l.screen == Screen.Apps || l.screen == Screen.Sources) StatusBar(time, net.vpn, net.online, Modifier.align(Alignment.TopEnd))
             ControlSheet(l, time)
         }
     }
