@@ -1,17 +1,17 @@
 package com.arshe.tvos.ui
 
-import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.animateOffsetAsState
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
-import androidx.compose.foundation.Canvas
+import androidx.compose.animation.togetherWith
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -22,6 +22,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicText
 import androidx.compose.runtime.Composable
@@ -30,114 +31,151 @@ import androidx.compose.runtime.key
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.Path
-import androidx.compose.ui.graphics.StrokeCap
-import androidx.compose.ui.graphics.StrokeJoin
-import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.em
+import androidx.compose.ui.unit.sp
+import com.arshe.tvos.data.HeroItem
+import com.arshe.tvos.data.rememberPoster
 
-private const val SX = 339
-private const val SY = 250
-private const val GRID_Y = 300
+private const val LIST_X = 168
+private const val LIST_Y = 230
+private const val ROW_H = 88
+private const val ROW_GAP = 8
+private const val VISIBLE = 8
+private const val PREVIEW_X = 840
+private const val PREVIEW_W = 984
+private const val PREVIEW_H = 553
 
+/** "Все приложения": a list on the left, a large preview of the focused app on the right. */
 @Composable
 fun AppsScreen(l: Launcher) {
-    val order = l.appsOrder
-    val tiles = l.tiles.associateBy { it.key }
-    val focusedKey = order.getOrNull(l.appsFocus)
-    val focusedTile = focusedKey?.let { tiles[it] }
+    val apps = l.orderedTiles
+    val focused = apps.getOrNull(l.appsFocus)
+    val inList = l.zone == Zone.Row
     val move = l.moveMode
-    val row = l.appsFocus / Launcher.APPS_COLS
-    val scrollY by animateFloatAsState(-(row - 1).coerceAtLeast(0) * SY.toFloat(), tween(380, easing = J.Glide), label = "gridY")
 
     Box(Modifier.fillMaxSize()) {
-        // Accent glow from the focused tile's brand colour.
-        val glow = focusedTile?.brand?.color ?: Color.Transparent
+        val glow = focused?.brand?.color ?: Color.Transparent
         Box(
             Modifier.fillMaxSize().background(
-                Brush.radialGradient(0f to glow.copy(alpha = .2f), 1f to Color.Transparent, center = Offset(1152f, -108f), radius = 1400f),
+                Brush.radialGradient(0f to glow.copy(alpha = .16f), 1f to Color.Transparent, center = Offset(1344f, 486f), radius = 1200f),
             ),
         )
 
-        Column(Modifier.offset(J.CONTENT_X.dp, 96.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        Row(Modifier.offset(LIST_X.dp, 90.dp), verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.spacedBy(20.dp)) {
             BasicText("Приложения", style = jText(64, 800, tracking = (-0.03).em))
             BasicText(
-                if (move) "Перемещение: ${focusedTile?.title.orEmpty()}" else "Порядок здесь = порядок ряда на главной · удерживайте OK, чтобы переставить",
-                style = jText(26, 600, if (move) Color.White else Color.White.copy(.6f)),
+                if (move) "перемещение · ↑ ↓, OK — положить" else "${apps.size}",
+                Modifier.padding(bottom = 10.dp),
+                style = jText(28, 600, Color.White.copy(if (move) .85f else .5f)),
             )
         }
 
-        Box(Modifier.offset(J.CONTENT_X.dp, GRID_Y.dp).graphicsLayer { translationY = scrollY }) {
-            order.forEachIndexed { slot, k ->
-                val tile = tiles[k] ?: return@forEachIndexed
-                key(k) {
-                    val on = slot == l.appsFocus && l.zone != Zone.Rail
-                    val pos by animateOffsetAsState(
-                        Offset(((slot % Launcher.APPS_COLS) * SX).toFloat(), ((slot / Launcher.APPS_COLS) * SY).toFloat()),
-                        tween(220, easing = J.FocusSpring), label = "pos",
-                    )
-                    val a by animateFloatAsState(if (on) 1f else if (move) .4f else .85f, tween(250), label = "a")
-                    Box(
-                        Modifier
-                            .offset { IntOffset(pos.x.toInt(), pos.y.toInt()) }
-                            .graphicsLayer { alpha = a }
-                            .then(if (on && move) Modifier.wobble() else Modifier),
-                    ) {
-                        AppCard(tile, on, 300, 169, scale = if (move) 1.12f else 1.08f, lift = if (move) -16f else -6f)
-                        if (on && move) MoveArrows()
-                    }
+        AppList(l, apps, inList, move)
+
+        if (focused != null) {
+            Preview(l, focused)
+            Row(Modifier.offset(PREVIEW_X.dp, 820.dp), horizontalArrangement = Arrangement.spacedBy(18.dp)) {
+                Launcher.APP_ACTIONS.forEachIndexed { i, label ->
+                    JButton(label, focused = l.zone == Zone.Hero && l.appsBtn == i, bold = i == 0)
                 }
             }
+            BasicText(
+                "↑ ↓ — список · → — действия · OK — открыть · удерживайте OK — переставить",
+                Modifier.offset(PREVIEW_X.dp, 930.dp),
+                style = jText(24, 600, Color.White.copy(.45f)),
+            )
         }
+    }
+}
 
-        AnimatedVisibility(
-            visible = move,
-            modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 60.dp),
-            enter = fadeIn(tween(260)) + slideInVertically(tween(260, easing = J.CopyIn)) { 16 },
-            exit = fadeOut(tween(160)),
-        ) {
-            Row(
-                Modifier.height(76.dp).clip(RoundedCornerShape(14.dp)).background(Color(0xFF181818)).padding(horizontal = 36.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(34.dp),
-            ) {
-                BasicText("← ↑ ↓ → переместить", style = jText(26, 700))
-                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Box(Modifier.height(40.dp).clip(RoundedCornerShape(8.dp)).background(Color.White).padding(horizontal = 12.dp), contentAlignment = Alignment.Center) {
-                        BasicText("OK", style = jText(22, 800, Color.Black))
-                    }
-                    BasicText("положить", style = jText(26, 700))
-                }
-                BasicText("Back — отменить", style = jText(26, 700, Color.White.copy(.7f)))
+@Composable
+private fun AppList(l: Launcher, apps: List<HeroItem>, inList: Boolean, move: Boolean) {
+    // Keep the focused row inside the visible window.
+    val first = (l.appsFocus - (VISIBLE - 2)).coerceIn(0, (apps.size - VISIBLE).coerceAtLeast(0))
+    val scroll by animateFloatAsState(-(first * (ROW_H + ROW_GAP)).toFloat(), tween(300, easing = J.Glide), label = "list")
+    Box(Modifier.offset(LIST_X.dp, LIST_Y.dp).size(620.dp, (VISIBLE * (ROW_H + ROW_GAP)).dp).clip(RoundedCornerShape(12.dp))) {
+        Column(Modifier.graphicsLayer { translationY = scroll }, verticalArrangement = Arrangement.spacedBy(ROW_GAP.dp)) {
+            apps.forEachIndexed { i, app ->
+                key(app.key) { AppRow(app, i, on = inList && i == l.appsFocus, selected = i == l.appsFocus, moving = move && i == l.appsFocus) }
             }
         }
     }
 }
 
 @Composable
-private fun Modifier.wobble(): Modifier {
-    val r by rememberInfiniteTransition(label = "wob").animateFloat(
-        -1.2f, 1.2f, infiniteRepeatable(tween(140), RepeatMode.Reverse), label = "r",
+private fun AppRow(app: HeroItem, index: Int, on: Boolean, selected: Boolean, moving: Boolean) {
+    val s by animateFloatAsState(if (on) 1.03f else 1f, tween(200, easing = J.ButtonSpring), label = "row")
+    val wob by rememberInfiniteTransition(label = "wob").animateFloat(
+        -0.6f, 0.6f, infiniteRepeatable(tween(140), RepeatMode.Reverse), label = "w",
     )
-    return this.graphicsLayer { rotationZ = r }
+    val ink = when {
+        on -> Color.Black
+        selected -> Color.White
+        else -> Color.White.copy(.7f)
+    }
+    Row(
+        Modifier.width(600.dp).height(ROW_H.dp)
+            .graphicsLayer {
+                scaleX = s; scaleY = s
+                transformOrigin = TransformOrigin(0f, .5f)
+                rotationZ = if (moving) wob else 0f
+            }
+            .clip(RoundedCornerShape(12.dp))
+            .background(if (on) Color.White else if (selected) Color.White.copy(.12f) else Color.Transparent)
+            .padding(horizontal = 20.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(20.dp),
+    ) {
+        BrandBadge(app.brand, 48)
+        BasicText(app.title, Modifier.weight(1f), style = jText(32, 700, ink, tracking = (-0.01).em), maxLines = 1, overflow = TextOverflow.Ellipsis)
+        BasicText("%02d".format(index + 1), style = jText(24, 800, ink.copy(alpha = if (on) .45f else .35f)))
+    }
 }
 
 @Composable
-private fun MoveArrows() {
-    Canvas(Modifier.offset((-40).dp, (-40).dp).size(380.dp, 250.dp).graphicsLayer { alpha = .8f }) {
-        val st = Stroke(3f, cap = StrokeCap.Round, join = StrokeJoin.Round)
-        fun chevron(vararg p: Pair<Float, Float>) = drawPath(Path().apply {
-            moveTo(p[0].first, p[0].second); p.drop(1).forEach { lineTo(it.first, it.second) }
-        }, Color.White, style = st)
-        chevron(14f to 113f, 4f to 125f, 14f to 137f)
-        chevron(366f to 113f, 376f to 125f, 366f to 137f)
-        chevron(178f to 14f, 190f to 4f, 202f to 14f)
-        chevron(178f to 236f, 190f to 246f, 202f to 236f)
+private fun Preview(l: Launcher, app: HeroItem) {
+    Box(
+        Modifier.offset(PREVIEW_X.dp, LIST_Y.dp).size(PREVIEW_W.dp, PREVIEW_H.dp)
+            .shadow(40.dp, RoundedCornerShape(16.dp), clip = false, ambientColor = Color.Black, spotColor = Color.Black)
+            .clip(RoundedCornerShape(16.dp))
+            .background(Color(0xFF111111)),
+    ) {
+        AnimatedContent(
+            targetState = app,
+            contentKey = { it.key },
+            transitionSpec = { fadeIn(tween(450, 150)) togetherWith fadeOut(tween(250)) },
+            label = "preview",
+        ) { a ->
+            // Landscape artwork only: Megogo catalog posters are portrait, so skip those.
+            val shot = l.previewOf(a)?.takeIf { !it.key.startsWith("mg:") }?.poster
+            if (shot != null) {
+                val img by rememberPoster(shot, PREVIEW_W)
+                img?.let { Image(it, null, Modifier.fillMaxSize(), contentScale = ContentScale.Crop) }
+            } else {
+                ArtCanvas(a.art, Modifier.fillMaxSize())
+            }
+        }
+        Box(Modifier.fillMaxSize().background(Brush.verticalGradient(.45f to Color.Transparent, 1f to Color.Black.copy(.85f))))
+        AnimatedContent(
+            targetState = app,
+            contentKey = { it.key },
+            transitionSpec = { (fadeIn(tween(320, 180)) + slideInVertically(tween(480, 180, J.CopyIn)) { 12 }) togetherWith fadeOut(tween(150)) },
+            modifier = Modifier.align(Alignment.BottomStart).padding(start = 44.dp, end = 44.dp, bottom = 36.dp),
+            label = "copy",
+        ) { a ->
+            Column {
+                BasicText(a.title, style = jText(84, 800, tracking = TitleTracking, lineHeight = 84.sp), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                BasicText(a.desc, Modifier.padding(top = 12.dp), style = jText(28, 500, Color.White.copy(.82f)), maxLines = 1, overflow = TextOverflow.Ellipsis)
+            }
+        }
     }
 }

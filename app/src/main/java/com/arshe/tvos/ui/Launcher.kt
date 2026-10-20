@@ -459,7 +459,7 @@ class Launcher(
             else -> return false
         }
         // OK on the apps grid needs press/release to tell a tap from a long-press.
-        if (k == K.Ok && screen == Screen.Apps && !sheetOpen && zone != Zone.Rail && !moveMode) {
+        if (k == K.Ok && screen == Screen.Apps && !sheetOpen && zone == Zone.Row && !moveMode) {
             if (down && !repeat) {
                 holdJob?.cancel()
                 holdJob = scope.launch {
@@ -563,19 +563,34 @@ class Launcher(
         }
     }
 
+    /** Apps screen: Row = the list, Hero = the action buttons next to the preview. */
+    var appsBtn by mutableIntStateOf(0)
+
     private fun appsKey(k: K) {
         if (zone == Zone.Rail) { railKey(k); return }
         val n = appsOrder.size
-        val c = appsFocus % APPS_COLS
-        fun target(dx: Int, dy: Int): Int? {
-            if (dx != 0) { if (c + dx < 0 || c + dx >= APPS_COLS) return null; return (appsFocus + dx).takeIf { it in 0 until n } }
-            return (appsFocus + dy * APPS_COLS).takeIf { it in 0 until n }
+        if (zone == Zone.Hero) {
+            val app = orderedTiles.getOrNull(appsFocus) ?: return
+            when (k) {
+                K.Left -> if (appsBtn > 0) appsBtn-- else zone = Zone.Row
+                K.Right -> appsBtn = (appsBtn + 1).coerceAtMost(APP_ACTIONS.size - 1)
+                K.Back -> zone = Zone.Row
+                K.Ok -> when (appsBtn) {
+                    0 -> run(app.action)
+                    1 -> { zone = Zone.Row; snapshot = appsOrder; moveMode = true }
+                    else -> if (app.key.contains('.')) launch(
+                        Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:${app.key}")),
+                    )
+                }
+                else -> Unit
+            }
+            return
         }
         val t = when (k) {
-            K.Left -> if (c == 0 && !moveMode) { openRail(RailItem.Apps); return } else target(-1, 0)
-            K.Right -> target(1, 0)
-            K.Up -> target(0, -1)
-            K.Down -> target(0, 1) ?: if (appsFocus / APPS_COLS < (n - 1) / APPS_COLS) n - 1 else null
+            K.Left -> { if (!moveMode) openRail(RailItem.Apps); return }
+            K.Right -> { if (!moveMode) { zone = Zone.Hero; appsBtn = 0 }; return }
+            K.Up -> (appsFocus - 1).takeIf { it >= 0 }
+            K.Down -> (appsFocus + 1).takeIf { it < n }
             K.Ok -> { if (moveMode) { moveMode = false; snapshot = null; repo.saveOrder(appsOrder); tiles = orderedTiles }; return }
             K.Back -> {
                 if (moveMode) { moveMode = false; snapshot?.let { appsOrder = it }; snapshot = null } else goHome()
@@ -590,6 +605,10 @@ class Launcher(
         }
         appsFocus = t
     }
+
+    /** Preview art for an app: what you watched there, else the head of its catalog. */
+    fun previewOf(app: HeroItem): HeroItem? =
+        recentItems(app).firstOrNull { it.poster != null } ?: pages[app.key]?.firstOrNull()?.items?.firstOrNull()
 
     private fun sourcesKey(k: K) {
         val n = sources.size
@@ -634,6 +653,7 @@ class Launcher(
         screen = Screen.Apps
         zone = Zone.Row
         appsFocus = 0
+        appsBtn = 0
         moveMode = false
     }
 
@@ -664,6 +684,6 @@ class Launcher(
     }
 
     companion object {
-        const val APPS_COLS = 5
+        val APP_ACTIONS = listOf("Открыть", "Переставить", "О приложении")
     }
 }
