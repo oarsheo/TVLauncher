@@ -10,9 +10,10 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 /**
- * Philips boots into the last source; with no channels tuned that is the TV+ promo or the
- * channel-installation wizard. For a minute after boot, a detached shell loop watches the
- * focused window and sends the user Home if one of those shows up (HDMI etc. is left alone).
+ * Philips boots into the last source; with no channels tuned that is an empty tuner (which
+ * auto-powers-off after 5 min), the TV+ promo or the channel wizard. For a minute after boot
+ * a detached shell loop watches the screen and sends the user Home in those cases. Watch TV
+ * on an HDMI input is left alone: the active TV input session tells tuner from HDMI.
  */
 class BootReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
@@ -33,9 +34,11 @@ class BootReceiver : BroadcastReceiver() {
     }
 
     private companion object {
+        const val HOME = "am start -a android.intent.action.MAIN -c android.intent.category.HOME"
         const val WATCH = "for i in 1 2 3 4 5 6 7 8 9 10 11 12; do sleep 5; " +
             "case \"\$(dumpsys window | grep mCurrentFocus)\" in " +
-            "*org.droidtv.fastip*|*org.droidtv.channels*|*euinstaller*) " +
-            "am start -a android.intent.action.MAIN -c android.intent.category.HOME; exit;; esac; done"
+            "*org.droidtv.fastip*|*org.droidtv.channels*|*euinstaller*) $HOME; exit;; " +
+            "*org.droidtv.playtv*) if dumpsys tv_input | sed -n /sessionStateMap/,\\\$p | grep -q inputId:.*tuner; then $HOME; exit; fi;; " +
+            "esac; done"
     }
 }
