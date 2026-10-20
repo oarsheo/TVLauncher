@@ -75,6 +75,12 @@ TIER2_PKGS=(
   com.android.tv.feedbackconsent
   com.android.healthconnect.controller
   com.android.health.connect.backuprestore
+  org.droidtv.customautologservice   # Philips log uploader (boot + internet)
+  org.droidtv.PerformanceIndicator   # Philips performance metrics (boot + internet)
+  org.droidtv.diagnostics
+  com.example.tvcontentprovider      # MediaTek sample app left in the firmware (boot + internet)
+  org.droidtv.oemtabprovider         # Google TV home tabs, unused with our launcher
+  com.google.android.partnersetup
 )
 
 PKGS=("${TIER1[@]}")
