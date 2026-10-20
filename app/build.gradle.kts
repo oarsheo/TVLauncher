@@ -17,9 +17,12 @@ android {
         applicationId = "com.arshe.tvos"
         minSdk = 30
         targetSdk = 34
-        versionCode = 2
-        versionName = "0.2"
+        versionCode = 3
+        versionName = "0.3"
         buildConfigField("String", "YOUTUBE_API_KEY", "\"${localProps.getProperty("youtube.apiKey", "")}\"")
+        // Credentials from scripts/philips-pair.py; enable Ambilight / sleep timer / standby.
+        buildConfigField("String", "JOINTSPACE_USER", "\"${localProps.getProperty("jointspace.user", "")}\"")
+        buildConfigField("String", "JOINTSPACE_PASS", "\"${localProps.getProperty("jointspace.pass", "")}\"")
     }
 
     buildTypes {

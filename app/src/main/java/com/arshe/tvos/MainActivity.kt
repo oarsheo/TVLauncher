@@ -22,6 +22,7 @@ import com.arshe.tvos.data.PKG_APPLETV
 import com.arshe.tvos.data.PKG_MEGOGO
 import com.arshe.tvos.data.PKG_NETFLIX
 import com.arshe.tvos.data.PKG_YOUTUBE
+import com.arshe.tvos.data.SaverStore
 import com.arshe.tvos.data.YouTubeSource
 import com.arshe.tvos.ui.LauncherRoot
 import com.arshe.tvos.ui.isHomeIntent
@@ -58,6 +59,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onResume() {
         super.onResume()
+        launcher.refreshAmbi()
         lifecycleScope.launch {
             val tiles = withContext(Dispatchers.IO) { apps.load() }
             withContext(Dispatchers.Default) {
@@ -82,6 +84,7 @@ class MainActivity : ComponentActivity() {
         for ((pkg, load) in sources) lifecycleScope.launch {
             val rows = withContext(Dispatchers.IO) { load() }
             if (rows.isNotEmpty()) launcher.pages = launcher.pages + (pkg to rows)
+            SaverStore.update(launcher.pages, emptyList())
             prefetch(rows)
         }
     }

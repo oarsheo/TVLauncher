@@ -16,7 +16,10 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.input.key.onPreviewKeyEvent
+import com.arshe.tvos.data.AMBI_MODES
 import com.arshe.tvos.data.AppsRepository
+import com.arshe.tvos.data.JointSpace
+import com.arshe.tvos.data.SLEEP_STEPS
 import com.arshe.tvos.data.rememberClock
 import com.arshe.tvos.data.rememberNetStatus
 
@@ -30,15 +33,37 @@ fun LauncherRoot(l: Launcher) {
 
     SideEffect {
         l.sheetRows = buildList {
-            add(SheetRow("Все настройки", "Philips") { l.sheetOpen = false; l.launch(AppsRepository.settingsIntent()) })
+            val a = l.ambi
+            if (a != null) {
+                add(SheetRow("Ambilight", toggle = a.power, run = {
+                    l.ambiUpdate({ it.copy(power = !it.power) }) { JointSpace.setPower(!a.power) }
+                }))
+                fun mode(d: Int) {
+                    val m = Math.floorMod(a.mode + d, AMBI_MODES.size)
+                    l.ambiUpdate({ it.copy(mode = m, power = true) }) { JointSpace.setMode(m) }
+                }
+                add(SheetRow("Режим", value = AMBI_MODES[a.mode].first, adjust = ::mode, run = { mode(1) }))
+                add(SheetRow("Яркость", slider = a.brightness to 10, adjust = { d ->
+                    val v = (a.brightness + d).coerceIn(0, 10)
+                    l.ambiUpdate({ it.copy(brightness = v) }) { JointSpace.setBrightness(v) }
+                }))
+                val step = SLEEP_STEPS.indexOfFirst { it >= a.sleepMin }.coerceAtLeast(0)
+                add(SheetRow("Таймер сна", chips = listOf("Выкл", "30", "60", "90", "120"), chip = step, gapBefore = true, adjust = { d ->
+                    val v = SLEEP_STEPS[(step + d).coerceIn(0, SLEEP_STEPS.size - 1)]
+                    l.ambiUpdate({ it.copy(sleepMin = v) }) { JointSpace.setSleep(v) }
+                }))
+            }
+            add(SheetRow("Все настройки", "Philips", gapBefore = a != null) { l.sheetOpen = false; l.launch(AppsRepository.settingsIntent()) })
             add(SheetRow("Сеть и интернет", if (net.online) "Подключено" else "Нет сети") { l.sheetOpen = false; l.launch(AppsRepository.networkIntent()) })
             l.tiles.firstOrNull { it.key == PKG_NORD }?.let { nord ->
                 add(SheetRow(if (net.vpn) "NordVPN · подключён" else "NordVPN · выключен", toggle = net.vpn) {
                     l.sheetOpen = false; l.run(nord.action)
                 })
             }
-            add(SheetRow("Источники", "HDMI и тюнер") { l.sheetOpen = false; l.openSources() })
-            add(SheetRow("Все приложения", "${l.tiles.size}") { l.sheetOpen = false; l.openApps() })
+            if (JointSpace.configured) add(SheetRow("Выключить ТВ", danger = true, gapBefore = true) {
+                l.sheetOpen = false
+                l.ambiUpdate({ it }) { JointSpace.standby() }
+            })
         }
     }
 

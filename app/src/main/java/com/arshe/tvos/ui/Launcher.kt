@@ -16,7 +16,9 @@ import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.nativeKeyCode
 import androidx.compose.ui.input.key.type
 import com.arshe.tvos.data.Action
+import com.arshe.tvos.data.AmbiState
 import com.arshe.tvos.data.AppsRepository
+import com.arshe.tvos.data.JointSpace
 import com.arshe.tvos.data.HeroItem
 import com.arshe.tvos.data.ContentRow
 import com.arshe.tvos.data.KEY_SETTINGS
@@ -38,7 +40,19 @@ enum class Screen { Home, Apps, Sources }
 /** Nav = top app bar, Hero = buttons under the billboard, Row = content rows / apps grid / inputs, Rail = left menu. */
 enum class Zone { Rail, Nav, Hero, Row }
 
-data class SheetRow(val label: String, val value: String? = null, val toggle: Boolean? = null, val danger: Boolean = false, val run: () -> Unit)
+/** A quick-settings row. ←/→ call [adjust]; OK calls [run]. */
+data class SheetRow(
+    val label: String,
+    val value: String? = null,
+    val toggle: Boolean? = null,
+    val danger: Boolean = false,
+    val slider: Pair<Int, Int>? = null,
+    val chips: List<String>? = null,
+    val chip: Int = -1,
+    val gapBefore: Boolean = false,
+    val adjust: ((Int) -> Unit)? = null,
+    val run: () -> Unit = {},
+)
 
 /** An entry of the top bar: a content app (switches the page) or a shortcut (runs on OK). */
 data class NavItem(val label: String, val tile: HeroItem, val isTab: Boolean)
@@ -133,6 +147,17 @@ class Launcher(
     var sheetOpen by mutableStateOf(false)
     var sheetFocus by mutableIntStateOf(0)
     var sheetRows by mutableStateOf(emptyList<SheetRow>())
+    var ambi by mutableStateOf<AmbiState?>(null)
+
+    fun refreshAmbi() {
+        if (JointSpace.configured) scope.launch { ambi = JointSpace.state() }
+    }
+
+    /** Optimistic update + fire-and-forget call to the TV. */
+    fun ambiUpdate(change: (AmbiState) -> AmbiState, call: suspend () -> Unit) {
+        ambi = ambi?.let(change)
+        scope.launch { call() }
+    }
 
     val heroItem: HeroItem?
         get() = when (zone) {
@@ -354,6 +379,8 @@ class Launcher(
         when (k) {
             K.Up -> sheetFocus = (sheetFocus - 1).coerceAtLeast(0)
             K.Down -> sheetFocus = (sheetFocus + 1).coerceAtMost(sheetRows.size - 1)
+            K.Left -> sheetRows.getOrNull(sheetFocus)?.adjust?.invoke(-1)
+            K.Right -> sheetRows.getOrNull(sheetFocus)?.adjust?.invoke(1)
             K.Ok -> sheetRows.getOrNull(sheetFocus)?.run?.invoke()
             K.Back -> sheetOpen = false
             else -> Unit
@@ -362,7 +389,7 @@ class Launcher(
 
     private fun toggleSheet() {
         sheetOpen = !sheetOpen
-        if (sheetOpen) sheetFocus = 0
+        if (sheetOpen) { sheetFocus = 0; refreshAmbi() }
     }
 
     fun openApps() {

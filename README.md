@@ -12,7 +12,11 @@ Kotlin + Jetpack Compose, laid out on a fixed 1920×1080 canvas.
   - Megogo: rows parsed from its public storefront; links open `megogo://video/<id>`.
   - YouTube: Data API charts (trending, music, gaming).
   - "Continue watching": captured from the media sessions of the playing apps.
-- **All apps** grid (hold OK to reorder), **inputs** (HDMI via `TvInputManager`), **quick settings** sheet.
+- **All apps** grid (hold OK to reorder), **inputs** (HDMI via `TvInputManager`).
+- **Quick settings** (Menu key): Ambilight on/off, mode, brightness, sleep timer, standby — through the TV's
+  JointSpace API on `127.0.0.1:1926` (pair once with `scripts/philips-pair.py`, put the printed
+  `jointspace.user` / `jointspace.pass` into `local.properties`).
+- **Screensaver** (`TvosDream`): Aerial-style catalog backdrops with a drifting clock; OK opens the title.
 
 ### Build & install
 
@@ -29,6 +33,10 @@ adb shell cmd notification allow_listener com.arshe.tvos/com.arshe.tvos.data.Now
 adb shell cmd package set-home-activity com.arshe.tvos/.MainActivity
 adb shell pm disable-user --user 0 com.google.android.tvlauncher
 # rollback: adb shell pm enable com.google.android.tvlauncher
+
+# screensaver after 10 minutes idle
+adb shell settings put secure screensaver_components com.arshe.tvos/com.arshe.tvos.ui.TvosDream
+adb shell settings put system screen_off_timeout 600000
 ```
 
 ## Scripts

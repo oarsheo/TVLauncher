@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -65,6 +66,7 @@ fun ControlSheet(l: Launcher, time: String) {
 
 @Composable
 private fun SheetRowView(row: SheetRow, on: Boolean) {
+    if (row.gapBefore) Spacer(Modifier.height(14.dp))
     val s by animateFloatAsState(if (on) 1.02f else 1f, tween(200, easing = J.ButtonSpring), label = "rs")
     val ink = if (on) Color.Black else Color.White
     Row(
@@ -77,8 +79,13 @@ private fun SheetRowView(row: SheetRow, on: Boolean) {
     ) {
         val labelInk = if (row.danger) (if (on) Color(0xFFC8102E) else Color(0xFFFF5A5F)) else ink
         BasicText(row.label, Modifier.weight(1f), style = jText(28, 700, labelInk), maxLines = 1)
-        row.value?.let { BasicText(it, style = jText(26, 600, ink.copy(if (on) .75f else .6f)), maxLines = 1) }
+        row.value?.let {
+            val shown = if (row.adjust != null && on) "‹  $it  ›" else it
+            BasicText(shown, style = jText(26, if (row.adjust != null) 700 else 600, ink.copy(if (on) .8f else .6f)), maxLines = 1)
+        }
         row.toggle?.let { Toggle(it, on) }
+        row.slider?.let { (v, max) -> Slider(v, max, on) }
+        row.chips?.let { Chips(it, row.chip, on) }
     }
 }
 
@@ -90,5 +97,51 @@ private fun Toggle(value: Boolean, focused: Boolean) {
             .background(if (value) J.Accent else if (focused) Color.Black.copy(.18f) else Color.White.copy(.2f)),
     ) {
         Box(Modifier.offset(4.dp, 4.dp).graphicsLayer { translationX = x }.size(30.dp).clip(CircleShape).background(Color.White))
+    }
+}
+
+@Composable
+private fun Slider(value: Int, max: Int, focused: Boolean) {
+    val f by animateFloatAsState(value / max.toFloat(), tween(160), label = "slider")
+    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+        Box(
+            Modifier.size(220.dp, 8.dp).clip(RoundedCornerShape(4.dp))
+                .background(if (focused) Color.Black.copy(.15f) else Color.White.copy(.18f)),
+        ) {
+            Box(Modifier.fillMaxHeight().fillMaxWidth(f).background(if (focused) Color.Black else Color.White))
+        }
+        BasicText("$value", Modifier.width(36.dp), style = jText(26, 800, if (focused) Color.Black else Color.White))
+    }
+}
+
+@Composable
+private fun Chips(labels: List<String>, selected: Int, focused: Boolean) {
+    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        labels.forEachIndexed { i, label ->
+            val sel = i == selected
+            Box(
+                Modifier.height(44.dp).clip(RoundedCornerShape(8.dp))
+                    .background(
+                        when {
+                            sel && focused -> Color.Black
+                            sel -> Color.White
+                            focused -> Color.Black.copy(.08f)
+                            else -> Color.White.copy(.1f)
+                        },
+                    )
+                    .padding(horizontal = 10.dp),
+                contentAlignment = Alignment.Center,
+            ) {
+                BasicText(
+                    label,
+                    style = jText(24, 800, when {
+                        sel && focused -> Color.White
+                        sel -> Color.Black
+                        focused -> Color.Black.copy(.65f)
+                        else -> Color.White.copy(.7f)
+                    }),
+                )
+            }
+        }
     }
 }

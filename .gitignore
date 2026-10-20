@@ -11,3 +11,4 @@ reports/
 *.JPG
 index.js
 package.json
+scripts/.philips-pair.json
