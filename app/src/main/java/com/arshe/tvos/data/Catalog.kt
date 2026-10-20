@@ -76,6 +76,17 @@ class JustWatchSource(
         )
     }
 
+    /** Live title search within this service (not cached). */
+    fun search(text: String): List<HeroItem> {
+        val filter = JSONObject().put("packages", JSONArray().put(code)).put("searchQuery", text)
+        val body = JSONObject()
+            .put("query", Q)
+            .put("variables", JSONObject().put("country", "UA").put("language", "ru").put("first", 15).put("filter", filter))
+            .toString()
+        val json = runCatching { http("https://apis.justwatch.com/graphql", body) }.getOrNull() ?: return emptyList()
+        return runCatching { parse(json) }.getOrDefault(emptyList())
+    }
+
     private fun query(name: String, type: String?): List<HeroItem> {
         val filter = JSONObject().put("packages", JSONArray().put(code))
         if (type != null) filter.put("objectTypes", JSONArray().put(type))
@@ -90,7 +101,7 @@ class JustWatchSource(
     private fun parse(json: String): List<HeroItem> =
         nodes(JSONObject(json).getJSONObject("data").getJSONObject("popularTitles").getJSONArray("edges"))
 
-    /** Turns JustWatch title nodes ({edges:[{node}]}) into items; shared with "similar titles". */
+    /** Turns JustWatch title nodes ({edges:[{node}]}) into items. */
     fun nodes(edges: JSONArray): List<HeroItem> {
         return (0 until edges.length()).mapNotNull { i ->
             val n = edges.getJSONObject(i).getJSONObject("node")
@@ -105,7 +116,6 @@ class JustWatchSource(
             val kind = if (n.optString("objectType") == "SHOW") "Сериал" else "Фильм"
             HeroItem(
                 key = "jw:$code:$title",
-                ref = n.optString("id").takeIf { it.isNotBlank() }?.let { "jw:$it" },
                 app = app,
                 brand = brand,
                 title = title,
@@ -147,6 +157,13 @@ class MegogoSource(private val context: Context, private val brand: Brand, priva
             .take(8)
     }
 
+    /** Title search on megogo.net; same cards as the storefront rows. */
+    fun search(text: String): List<HeroItem> {
+        val html = runCatching { http("https://megogo.net/ua/search-extended?q=" + java.net.URLEncoder.encode(text, "UTF-8")) }.getOrNull()
+            ?: return emptyList()
+        return cards(html, "Megogo").take(20)
+    }
+
     private fun page(name: String, url: String): List<ContentRow> {
         val html = cachedFetch(context, "mg_$name") { http(url) } ?: return emptyList()
         return runCatching { parse(html) }.onFailure { Log.w(TAG, "mg parse", it) }.getOrDefault(emptyList())
@@ -158,30 +175,32 @@ class MegogoSource(private val context: Context, private val brand: Brand, priva
             val title = Html.fromHtml(m.groupValues[1], 0).toString().trim()
             if (title.startsWith("Розділ")) return@mapIndexedNotNull null
             val end = widgets.getOrNull(wi + 1)?.range?.first ?: html.length
-            val seg = html.substring(m.range.last, end)
-            val items = CARD.findAll(seg).mapNotNull { c ->
-                val id = c.groupValues[1]
-                val name = Html.fromHtml(c.groupValues[2], 0).toString()
-                val img = IMG.find(c.value)?.groupValues?.get(1)?.substringBefore("/pt/") ?: return@mapNotNull null
-                HeroItem(
-                    key = "mg:$id",
-                    ref = "mg:$id",
-                    app = "Megogo",
-                    brand = brand,
-                    title = name,
-                    meta = title,
-                    desc = "",
-                    art = art,
-                    poster = img,
-                    cover = "$img/pt/r386x544",
-                    heroBias = -0.55f,
-                    primary = "Смотреть",
-                    action = Action.Launch(Intent(Intent.ACTION_VIEW, Uri.parse("megogo://video/$id")).setPackage(PKG_MEGOGO)),
-                )
-            }.distinctBy { it.key }.toList()
+            val items = cards(html.substring(m.range.last, end), title)
             items.takeIf { it.size >= 4 }?.let { ContentRow(title, it, portrait = true) }
         }
     }
+
+    /** Video cards in a chunk of storefront/search HTML; [label] becomes the billboard subtitle. */
+    private fun cards(seg: String, label: String): List<HeroItem> =
+        CARD.findAll(seg).mapNotNull { c ->
+            val id = c.groupValues[1]
+            val name = Html.fromHtml(c.groupValues[2], 0).toString()
+            val img = IMG.find(c.value)?.groupValues?.get(1)?.substringBefore("/pt/") ?: return@mapNotNull null
+            HeroItem(
+                key = "mg:$id",
+                app = "Megogo",
+                brand = brand,
+                title = name,
+                meta = label,
+                desc = "",
+                art = art,
+                poster = img,
+                cover = "$img/pt/r386x544",
+                heroBias = -0.55f,
+                primary = "Смотреть",
+                action = Action.Launch(Intent(Intent.ACTION_VIEW, Uri.parse("megogo://video/$id")).setPackage(PKG_MEGOGO)),
+            )
+        }.distinctBy { it.key }.toList()
 
     companion object {
         private val WIDGET = Regex("""data-feed-title="([^"]+)"""")
@@ -194,6 +213,8 @@ class MegogoSource(private val context: Context, private val brand: Brand, priva
 
 class YouTubeSource(private val context: Context) {
     private val trends = YouTubeTrends(context)
+
+    fun search(text: String): List<HeroItem> = trends.search(text)
 
     fun rows(): List<ContentRow> {
         if (Secrets.youtubeKey.isBlank()) return emptyList()

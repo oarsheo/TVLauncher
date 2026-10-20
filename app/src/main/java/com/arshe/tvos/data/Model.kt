@@ -11,6 +11,7 @@ sealed interface Action {
     data object OpenApps : Action
     data object OpenSources : Action
     data object OpenSettings : Action
+    data object OpenSearch : Action
 }
 
 /** Anything that can sit in the hero: a continue-watching program or an app tile. */
@@ -28,8 +29,6 @@ data class HeroItem(
     val cover: String? = null,
     /** Vertical crop bias for the hero (-1 top … 1 bottom); portrait-only artwork looks best near the top. */
     val heroBias: Float = 0f,
-    /** Where details come from: "jw:<JustWatch node id>" or "mg:<Megogo id>". */
-    val ref: String? = null,
     val progress: Float? = null,
     val live: Boolean = false,
     val primary: String = "Открыть",

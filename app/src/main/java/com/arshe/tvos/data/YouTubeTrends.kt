@@ -26,6 +26,27 @@ class YouTubeTrends(private val context: Context) {
         return runCatching { parse(json) }.onFailure { Log.w("TVOS", "yt parse", it) }.getOrDefault(emptyList())
     }
 
+    /** YouTube search (100 quota units per call; the caller debounces). */
+    fun search(text: String): List<HeroItem> {
+        val key = Secrets.youtubeKey
+        if (key.isBlank()) return emptyList()
+        val q = java.net.URLEncoder.encode(text, "UTF-8")
+        val json = runCatching {
+            val c = URL("https://www.googleapis.com/youtube/v3/search?part=snippet&type=video&maxResults=15&regionCode=UA&relevanceLanguage=ru&q=$q&key=$key")
+                .openConnection() as HttpURLConnection
+            if (c.responseCode == 200) c.inputStream.bufferedReader().readText() else null
+        }.getOrNull() ?: return emptyList()
+        // Search hits carry {id:{videoId}}; reshape them into the chart format parse() understands.
+        val items = JSONObject(json).getJSONArray("items")
+        val shaped = org.json.JSONArray()
+        for (i in 0 until items.length()) {
+            val it = items.getJSONObject(i)
+            val id = it.optJSONObject("id")?.optString("videoId") ?: continue
+            shaped.put(JSONObject().put("id", id).put("snippet", it.getJSONObject("snippet")))
+        }
+        return runCatching { parse(JSONObject().put("items", shaped).toString()) }.getOrDefault(emptyList())
+    }
+
     private fun fetch(key: String, region: String, category: String?): String? = runCatching {
         val url = URL(
             "https://www.googleapis.com/youtube/v3/videos?part=snippet,contentDetails,statistics" +

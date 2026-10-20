@@ -25,11 +25,6 @@ import com.arshe.tvos.data.LocalAdb
 import com.arshe.tvos.data.Updater
 import com.arshe.tvos.data.HeroItem
 import com.arshe.tvos.data.ContentRow
-import com.arshe.tvos.data.Detail
-import com.arshe.tvos.data.DetailsRepository
-import com.arshe.tvos.data.Episode
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withContext
 import com.arshe.tvos.data.KEY_SETTINGS
 import com.arshe.tvos.data.KEY_SOURCES
 import com.arshe.tvos.data.KEY_TV
@@ -41,12 +36,18 @@ import com.arshe.tvos.data.Recent
 import com.arshe.tvos.data.show
 import android.net.Uri
 import com.arshe.tvos.data.Source
+import com.arshe.tvos.data.JustWatchSource
+import com.arshe.tvos.data.MegogoSource
+import com.arshe.tvos.data.YouTubeSource
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
-enum class Screen { Home, Apps, Sources, Detail }
+enum class Screen { Home, Apps, Sources, Search }
 
 /** Nav = top app bar, Hero = buttons under the billboard, Row = content rows / apps grid / inputs, Rail = left menu. */
 enum class Zone { Rail, Nav, Hero, Row }
@@ -69,6 +70,24 @@ data class SheetRow(
 data class NavItem(val label: String, val tile: HeroItem, val isTab: Boolean)
 
 val CONTENT_APPS = listOf(PKG_NETFLIX, PKG_YOUTUBE, PKG_MEGOGO, PKG_APPLETV)
+
+val SEARCH_TILE = HeroItem(
+    key = "special:search", app = "Поиск", brand = Brand(Color.White, "⌕", Color.Black),
+    title = "Поиск", meta = "", desc = "", art = Arts.graphite, action = Action.OpenSearch,
+)
+
+/** On-screen keyboards, 6 columns; the last cells are controls. */
+val KEYBOARDS = listOf(
+    "абвгдеёжзийклмнопрстуфхцчшщъыьэюяіїєґ".map { it.toString() },
+    "abcdefghijklmnopqrstuvwxyz-'&:".map { it.toString() },
+    "1234567890.,!?-:".map { it.toString() },
+).map { it + listOf(KEY_SPACE, KEY_DEL, KEY_CLEAR, KEY_LANG, KEY_NUM) }
+const val KEY_SPACE = "␣"
+const val KEY_DEL = "⌫"
+const val KEY_CLEAR = "✕"
+const val KEY_LANG = "lang"
+const val KEY_NUM = "num"
+const val KB_COLS = 6
 
 /** Pseudo-app for the aggregated "Главная" page. */
 val HOME_TAB = HeroItem(
@@ -97,6 +116,7 @@ class Launcher(
             val tabs = listOf(NavItem("Главная", HOME_TAB, isTab = true)) +
                 CONTENT_APPS.mapNotNull { by[it] }.map { NavItem(it.title, it, isTab = true) }
             val shortcuts = listOfNotNull(
+                NavItem("Поиск", SEARCH_TILE, false),
                 by[KEY_TV]?.let { NavItem("ТВ", it, false) },
                 by[KEY_SOURCES]?.let { NavItem("Входы", it, false) },
                 NavItem("Приложения", AppsRepository.allAppsTile, false),
@@ -238,6 +258,100 @@ class Launcher(
 
     fun ambiCall(call: suspend () -> Unit) { scope.launch { call() } }
 
+    // ---------------- search ----------------
+
+    var query by mutableStateOf("")
+    var results by mutableStateOf(emptyList<ContentRow>())
+    var searching by mutableStateOf(false)
+    var kb by mutableIntStateOf(0)
+    var kbIdx by mutableIntStateOf(0)
+    var sRow by mutableIntStateOf(0)
+    val sIdx = mutableStateMapOf<Int, Int>()
+    private var searchJob: Job? = null
+
+    fun openSearch() {
+        screen = Screen.Search
+        zone = Zone.Hero
+    }
+
+    private fun press(key: String) {
+        when (key) {
+            KEY_SPACE -> if (query.isNotEmpty() && !query.endsWith(" ")) updateQuery("$query ")
+            KEY_DEL -> updateQuery(query.dropLast(1))
+            KEY_CLEAR -> updateQuery("")
+            KEY_LANG -> { kb = if (kb == 0) 1 else 0; kbIdx = kbIdx.coerceAtMost(KEYBOARDS[kb].size - 1) }
+            KEY_NUM -> { kb = if (kb == 2) 0 else 2; kbIdx = kbIdx.coerceAtMost(KEYBOARDS[kb].size - 1) }
+            else -> updateQuery(query + key)
+        }
+    }
+
+    /** Results follow the typing, 600 ms after the last key (YouTube search costs quota). */
+    private fun updateQuery(q: String) {
+        query = q
+        searchJob?.cancel()
+        val text = q.trim()
+        if (text.length < 2) { results = emptyList(); searching = false; return }
+        searchJob = scope.launch {
+            delay(600)
+            searching = true
+            val by = tiles.associateBy { it.key }
+            val found = withContext(Dispatchers.IO) {
+                listOfNotNull(
+                    by[PKG_NETFLIX]?.let { t -> async { ContentRow("Netflix", JustWatchSource(context, PKG_NETFLIX, "nfx", "Netflix", t.brand, t.art).search(text)) } },
+                    by[PKG_MEGOGO]?.let { t -> async { ContentRow("MEGOGO", MegogoSource(context, t.brand, t.art).search(text), portrait = true) } },
+                    by[PKG_APPLETV]?.let { t -> async { ContentRow("Apple TV+", JustWatchSource(context, PKG_APPLETV, "atp", "Apple TV+", t.brand, t.art).search(text)) } },
+                    by[PKG_YOUTUBE]?.let { async { ContentRow("YouTube", YouTubeSource(context).search(text)) } },
+                ).map { it.await() }.filter { it.items.isNotEmpty() }
+            }
+            results = found
+            sRow = 0
+            sIdx.clear()
+            searching = false
+        }
+    }
+
+    private fun searchKey(k: K) {
+        val keys = KEYBOARDS[kb]
+        when (zone) {
+            Zone.Row -> {
+                val row = results.getOrNull(sRow) ?: run { zone = Zone.Hero; return }
+                val i = sIdx[sRow] ?: 0
+                when (k) {
+                    K.Left -> if (i > 0) sIdx[sRow] = i - 1 else zone = Zone.Hero
+                    K.Right -> if (i < row.items.size - 1) sIdx[sRow] = i + 1
+                    K.Up -> if (sRow > 0) sRow--
+                    K.Down -> if (sRow < results.size - 1) sRow++
+                    K.Ok -> run(row.items[i].action)
+                    K.Back -> zone = Zone.Hero
+                    else -> Unit
+                }
+            }
+            else -> {
+                val c = kbIdx % KB_COLS
+                when (k) {
+                    K.Left -> if (c > 0) kbIdx--
+                    K.Right -> if (c < KB_COLS - 1 && kbIdx < keys.size - 1) kbIdx++ else if (results.isNotEmpty()) zone = Zone.Row
+                    K.Up -> if (kbIdx >= KB_COLS) kbIdx -= KB_COLS
+                    K.Down -> kbIdx = (kbIdx + KB_COLS).coerceAtMost(keys.size - 1)
+                    K.Ok -> press(keys[kbIdx])
+                    K.Back -> if (query.isNotEmpty()) updateQuery(query.dropLast(1)) else goHome()
+                    else -> Unit
+                }
+            }
+        }
+    }
+
+    /** Remote digit keys and the delete key type straight into the query. */
+    private fun searchTyping(code: Int): Boolean {
+        if (screen != Screen.Search || sheetOpen) return false
+        when (code) {
+            in AKey.KEYCODE_0..AKey.KEYCODE_9 -> updateQuery(query + (code - AKey.KEYCODE_0))
+            AKey.KEYCODE_DEL -> updateQuery(query.dropLast(1))
+            else -> return false
+        }
+        return true
+    }
+
     var updateText by mutableStateOf("Проверить")
 
     fun checkUpdates(installNow: Boolean) {
@@ -314,109 +428,12 @@ class Launcher(
     fun heroButtons(item: HeroItem?): List<String> = when {
         item == null -> emptyList()
         item === tab -> listOf("Открыть ${item.title}")
-        hasDetails(item) -> listOf(item.primary, "Подробнее")
         else -> listOf(item.primary, "Открыть ${item.app}")
     }
-
-    // ---------------- details ----------------
-
-    private val detailsRepo = DetailsRepository(context)
-    var detailItem by mutableStateOf<HeroItem?>(null)
-    var detail by mutableStateOf<Detail?>(null)
-    var detailLoading by mutableStateOf(false)
-    var episodes by mutableStateOf(emptyList<Episode>())
-    /** 0 = buttons, 1 = season chips, 2 = episodes / similar row. */
-    var dZone by mutableIntStateOf(0)
-    var dBtn by mutableIntStateOf(0)
-    var dSeason by mutableIntStateOf(0)
-    var dIdx by mutableIntStateOf(0)
-    private var detailFrom = Screen.Home
-    private var seasonJob: Job? = null
 
     /** The content app an item belongs to (labels differ: "Apple TV+" vs "Apple TV", "Megogo" vs "MEGOGO"). */
     fun ownerOf(item: HeroItem): HeroItem? =
         tiles.firstOrNull { it.key in CONTENT_APPS && it.title.lowercase().take(5) == item.app.lowercase().take(5) }
-
-    private fun hasDetails(item: HeroItem): Boolean = item.ref != null ||
-        (item.key.startsWith("np:") && ownerOf(item)?.key in setOf(PKG_NETFLIX, PKG_MEGOGO, PKG_APPLETV))
-
-    val detailRow: List<Any>
-        get() = if (detail?.seasons?.isNotEmpty() == true) episodes else detail?.similar.orEmpty()
-
-    fun openDetail(item: HeroItem) {
-        if (screen != Screen.Detail) detailFrom = screen
-        detailItem = item
-        detail = null
-        episodes = emptyList()
-        dZone = 0; dBtn = 0; dSeason = 0; dIdx = 0
-        screen = Screen.Detail
-        val owner = ownerOf(item) ?: return
-        detailLoading = true
-        scope.launch {
-            val d = withContext(Dispatchers.IO) { detailsRepo.load(item, owner.key, owner.brand, owner.art) }
-            if (detailItem !== item) return@launch
-            detail = d
-            episodes = d?.firstEpisodes.orEmpty()
-            detailLoading = false
-        }
-    }
-
-    private fun closeDetail() {
-        screen = detailFrom
-        detailItem = null
-    }
-
-    private fun selectSeason(i: Int) {
-        val d = detail ?: return
-        val season = d.seasons.getOrNull(i) ?: return
-        dSeason = i
-        dIdx = 0
-        val owner = detailItem?.let { ownerOf(it) } ?: return
-        seasonJob?.cancel()
-        seasonJob = scope.launch {
-            episodes = emptyList()
-            episodes = withContext(Dispatchers.IO) { detailsRepo.episodes(season, owner.key) }
-        }
-    }
-
-    private fun detailKey(k: K) {
-        val item = detailItem ?: return
-        val d = detail
-        val zones = listOfNotNull(0, 1.takeIf { (d?.seasons?.size ?: 0) > 1 }, 2.takeIf { detailRow.isNotEmpty() })
-        fun move(dir: Int) { zones.getOrNull(zones.indexOf(dZone) + dir)?.let { dZone = it } }
-        when (dZone) {
-            0 -> when (k) {
-                K.Left -> if (dBtn > 0) dBtn--
-                K.Right -> if (dBtn < 1) dBtn++
-                K.Down -> move(1)
-                K.Ok -> run(if (dBtn == 0) item.action else ownerOf(item)?.action ?: item.action)
-                K.Back -> closeDetail()
-                else -> Unit
-            }
-            1 -> when (k) {
-                K.Left -> if (dSeason > 0) selectSeason(dSeason - 1)
-                K.Right -> if (dSeason < (d?.seasons?.size ?: 0) - 1) selectSeason(dSeason + 1)
-                K.Up -> move(-1)
-                K.Down -> move(1)
-                K.Back -> closeDetail()
-                else -> Unit
-            }
-            else -> {
-                val row = detailRow
-                when (k) {
-                    K.Left -> if (dIdx > 0) dIdx--
-                    K.Right -> if (dIdx < row.size - 1) dIdx++
-                    K.Up -> move(-1)
-                    K.Back -> closeDetail()
-                    K.Ok -> when (val x = row.getOrNull(dIdx)) {
-                        is Episode -> run(x.action ?: item.action)
-                        is HeroItem -> openDetail(x)
-                    }
-                    else -> Unit
-                }
-            }
-        }
-    }
 
     // ---------------- keys ----------------
 
@@ -424,6 +441,7 @@ class Launcher(
         val code = e.key.nativeKeyCode
         val down = e.type == KeyEventType.KeyDown
         val repeat = e.nativeKeyEvent.repeatCount > 0
+        if (down && searchTyping(code)) return true
         val k = when (code) {
             AKey.KEYCODE_DPAD_LEFT -> K.Left
             AKey.KEYCODE_DPAD_RIGHT -> K.Right
@@ -458,7 +476,7 @@ class Launcher(
             screen == Screen.Home -> homeKey(k)
             screen == Screen.Apps -> appsKey(k)
             screen == Screen.Sources -> sourcesKey(k)
-            screen == Screen.Detail -> detailKey(k)
+            screen == Screen.Search -> searchKey(k)
         }
         return true
     }
@@ -507,7 +525,6 @@ class Launcher(
                 K.Ok -> heroItem?.let { item ->
                     when {
                         item === tab -> run(item.action)
-                        heroBtn == 1 && hasDetails(item) -> openDetail(item)
                         heroBtn == 1 -> run(ownerOf(item)?.action ?: tab?.action ?: item.action)
                         else -> run(item.action)
                     }
@@ -522,7 +539,7 @@ class Launcher(
                     K.Right -> if (i < row.items.size - 1) rowIdx[rowFocus] = i + 1
                     K.Up -> if (rowFocus == 0) { zone = Zone.Hero; heroBtn = 0 } else rowFocus--
                     K.Down -> if (rowFocus < rows.size - 1) rowFocus++
-                    K.Ok -> row.items[i].let { if (it.ref != null) openDetail(it) else run(it.action) }
+                    K.Ok -> run(row.items[i].action)
                     K.Back -> { zone = Zone.Nav; navIdx = tabIdx; resetPage() }
                     else -> Unit
                 }
@@ -626,6 +643,7 @@ class Launcher(
             Action.OpenApps -> openApps()
             Action.OpenSources -> openSources()
             Action.OpenSettings -> toggleSheet()
+            Action.OpenSearch -> openSearch()
         }
     }
 

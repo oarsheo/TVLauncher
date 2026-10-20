@@ -51,6 +51,14 @@ TIER2_PKGS=(
   org.droidtv.recommendation
   org.droidtv.nettvrecommender
   com.google.android.backdrop
+  com.android.dreams.basic           # replaced by the launcher's own screensaver
+  org.droidtv.nettv.market           # Philips App Gallery
+  org.droidtv.nettvapps
+  org.droidtv.nettv_launcherapp
+  org.droidtv.nettvregistration      # Philips account registration
+  org.droidtv.eum                    # built-in e-manual
+  org.droidtv.dropboxprovider
+  org.droidtv.fastip                 # Philips TV+ FAST channels
 )
 
 PKGS=("${TIER1[@]}")

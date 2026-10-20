@@ -81,10 +81,10 @@ fun LauncherRoot(l: Launcher) {
                     Screen.Home -> HomeScreen(l, time, net.vpn)
                     Screen.Apps -> AppsScreen(l)
                     Screen.Sources -> SourcesScreen(l)
-                    Screen.Detail -> DetailScreen(l)
+                    Screen.Search -> SearchScreen(l)
                 }
             }
-            if (l.visible && l.screen != Screen.Home && l.screen != Screen.Detail) Rail(
+            if (l.visible && (l.screen == Screen.Apps || l.screen == Screen.Sources)) Rail(
                 open = l.zone == Zone.Rail && !l.sheetOpen,
                 focus = l.railFocus,
                 active = when (l.screen) {

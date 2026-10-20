@@ -8,7 +8,7 @@ import java.io.File
 import java.net.URLEncoder
 
 /** Artwork and deep link found for a title we only know by name. */
-data class Found(val backdrop: String?, val link: String?, val ref: String? = null)
+data class Found(val backdrop: String?, val link: String?)
 
 /**
  * Resolves titles from media sessions (which carry no artwork for Megogo/Netflix) and
@@ -26,7 +26,7 @@ object Lookup {
                 val o = JSONObject(file!!.readText())
                 o.keys().forEach { k ->
                     val v = o.optJSONObject(k)
-                    mem[k] = v?.let { Found(it.optString("b").ifEmpty { null }, it.optString("l").ifEmpty { null }, it.optString("r").ifEmpty { null }) }
+                    mem[k] = v?.let { Found(it.optString("b").ifEmpty { null }, it.optString("l").ifEmpty { null }) }
                 }
             }
         }
@@ -36,7 +36,7 @@ object Lookup {
     @Synchronized
     private fun save() {
         val o = JSONObject()
-        mem.forEach { (k, v) -> o.put(k, v?.let { JSONObject().put("b", it.backdrop ?: "").put("l", it.link ?: "").put("r", it.ref ?: "") } ?: JSONObject.NULL) }
+        mem.forEach { (k, v) -> o.put(k, v?.let { JSONObject().put("b", it.backdrop ?: "").put("l", it.link ?: "") } ?: JSONObject.NULL) }
         runCatching { file?.writeText(o.toString()) }
     }
 
@@ -66,7 +66,7 @@ object Lookup {
     private fun megogo(context: Context, query: String): Found? = memo(context, "mg:$query") {
         val html = http("https://megogo.net/ua/search-extended?q=" + URLEncoder.encode(query, "UTF-8")) ?: return@memo null
         val id = CARD.find(html)?.groupValues?.get(1) ?: return@memo null
-        Found(megogoBackdrop(context, id), "megogo://video/$id", "mg:$id")
+        Found(megogoBackdrop(context, id), "megogo://video/$id")
     }
 
     private fun justWatch(context: Context, code: String, query: String): Found? = memo(context, "jw2:$code:$query") {
@@ -81,7 +81,7 @@ object Lookup {
         val offers = node.optJSONArray("offers") ?: JSONArray()
         val url = (0 until offers.length()).map { offers.getJSONObject(it) }
             .firstOrNull { it.optJSONObject("package")?.optString("shortName") == code }?.optString("standardWebURL")
-        Found(bd?.let { "https://images.justwatch.com" + it.replace("{profile}", "s1440").replace("/.{format}", "/i.webp") }, url, "jw:" + node.optString("id"))
+        Found(bd?.let { "https://images.justwatch.com" + it.replace("{profile}", "s1440").replace("/.{format}", "/i.webp") }, url)
     }
 
     private val CARD = Regex("""data-obj-id="(\d+)"\s+data-title=""")
