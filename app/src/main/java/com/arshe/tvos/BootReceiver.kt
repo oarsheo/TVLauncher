@@ -18,17 +18,13 @@ import kotlinx.coroutines.launch
 class BootReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
         if (intent.action != Intent.ACTION_BOOT_COMPLETED) return
-        val pending = goAsync()
         val app = context.applicationContext
+        // Runs in the launcher's process (the home app stays alive), not tied to the
+        // broadcast: on Android 14 adbd may only accept us a minute or more after boot.
         CoroutineScope(Dispatchers.IO).launch {
-            try {
-                // adbd's network listener can come up a little after BOOT_COMPLETED.
-                repeat(4) {
-                    if (LocalAdb.shell(app, "setsid -d sh -c '$WATCH' </dev/null >/dev/null 2>&1; sleep 1") != null) return@launch
-                    delay(2000)
-                }
-            } finally {
-                pending.finish()
+            repeat(12) {
+                if (LocalAdb.shell(app, "setsid -d sh -c '$WATCH' </dev/null >/dev/null 2>&1; sleep 1") != null) return@launch
+                delay(10_000)
             }
         }
     }
