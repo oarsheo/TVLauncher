@@ -16,11 +16,17 @@ object Maintenance {
     )
 
     // Only apps whose code is no longer fully compiled; a no-op on most days.
+    /** Too big to compile fully on a 5 GB /data; profile-guided is enough and they update often. */
+    private val PROFILE_APPS = listOf("com.google.android.gms", "com.android.vending")
+
     // (The launcher itself is left out: its bundled baseline profile keeps it in speed-profile.)
     private val SCRIPT = "D=\$(dumpsys package dexopt); for p in ${APPS.joinToString(" ")}; do " +
         "pm path \$p >/dev/null 2>&1 || continue; " +
         "case \"\$(echo \"\$D\" | grep -A2 \"\\[\$p\\]\" | grep -m1 -o \"status=[a-z-]*\")\" in " +
         "status=speed) ;; *) echo \"compile \$p\"; cmd package compile -m speed -f \$p;; esac; done; " +
+        "for p in ${PROFILE_APPS.joinToString(" ")}; do " +
+        "case \"\$(echo \"\$D\" | grep -A2 \"\\[\$p\\]\" | grep -m1 -o \"status=[a-z-]*\")\" in " +
+        "status=speed|status=speed-profile) ;; *) echo \"profile-compile \$p\"; cmd package compile -m speed-profile -f \$p;; esac; done; " +
         "sm fstrim; pm trim-caches 1500M; echo done"
 
     private const val PREFS = "maintenance"
