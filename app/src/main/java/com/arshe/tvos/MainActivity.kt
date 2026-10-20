@@ -2,7 +2,6 @@ package com.arshe.tvos
 
 import android.content.Intent
 import android.os.Bundle
-import android.os.SystemClock
 import androidx.activity.ComponentActivity
 import androidx.activity.OnBackPressedCallback
 import androidx.activity.compose.setContent
@@ -24,7 +23,6 @@ import com.arshe.tvos.data.PKG_APPLETV
 import com.arshe.tvos.data.PKG_MEGOGO
 import com.arshe.tvos.data.PKG_NETFLIX
 import com.arshe.tvos.data.PKG_YOUTUBE
-import com.arshe.tvos.data.LocalAdb
 import com.arshe.tvos.data.Lookup
 import com.arshe.tvos.data.SaverStore
 import com.arshe.tvos.data.Secrets
@@ -63,17 +61,6 @@ class MainActivity : ComponentActivity() {
         lifecycleScope.launch { NowPlaying.items.collect { launcher.recents = it } }
 
         setContent { LauncherRoot(launcher) }
-
-        // Netflix and Megogo start themselves on BOOT_COMPLETED (Android 11 won't let shell
-        // disable those receivers). Shortly after boot, stop them unless they're on screen.
-        if (SystemClock.elapsedRealtime() < 10 * 60 * 1000L) lifecycleScope.launch {
-            delay(90_000)
-            LocalAdb.shell(
-                this@MainActivity,
-                "f=\$(dumpsys window | grep mCurrentFocus); for p in $PKG_NETFLIX $PKG_MEGOGO; do " +
-                    "case \"\$f\" in *\$p*) ;; *) am force-stop \$p;; esac; done",
-            )
-        }
 
         // OTA: look for a new release now and every 6 hours; install only while hidden.
         lifecycleScope.launch {
