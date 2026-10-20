@@ -57,7 +57,6 @@ TIER2_PKGS=(
   org.droidtv.nettv_launcherapp
   org.droidtv.eum                    # built-in e-manual
   org.droidtv.dropboxprovider
-  org.droidtv.fastip                 # Philips TV+ FAST channels
 )
 
 PKGS=("${TIER1[@]}")

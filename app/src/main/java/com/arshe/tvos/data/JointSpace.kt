@@ -52,13 +52,18 @@ object JointSpace {
     suspend fun state(): AmbiState? = withContext(Dispatchers.IO) {
         runCatching {
             // The TV's API server is slow; ask for everything at once.
-            val powerQ = async { get("ambilight/power") }
-            val cfgQ = async { get("ambilight/currentconfiguration") }
+            // Each request catches its own failure: a failed child of async would cancel the
+            // parent and escape runCatching (e.g. right after boot, before the API is up).
+            val powerQ = async { runCatching { get("ambilight/power") }.getOrNull() }
+            val cfgQ = async { runCatching { get("ambilight/currentconfiguration") }.getOrNull() }
             val valuesQ = async {
-                post("menuitems/settings/current", JSONObject().put("nodes", JSONArray()
-                    .put(JSONObject().put("nodeid", NODE_AMBI_BRIGHTNESS))
-                    .put(JSONObject().put("nodeid", NODE_SLEEP))))
+                runCatching {
+                    post("menuitems/settings/current", JSONObject().put("nodes", JSONArray()
+                        .put(JSONObject().put("nodeid", NODE_AMBI_BRIGHTNESS))
+                        .put(JSONObject().put("nodeid", NODE_SLEEP))))
+                }.getOrNull()
             }
+            if (powerQ.await() == null && cfgQ.await() == null) return@runCatching null
             val power = powerQ.await()?.optString("power") == "On"
             val cfg = cfgQ.await()
             val mode = AMBI_MODES.indexOfFirst { it.second == cfg?.optString("styleName") && it.third == cfg.optString("menuSetting") }
