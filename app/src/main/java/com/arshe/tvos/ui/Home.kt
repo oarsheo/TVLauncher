@@ -63,7 +63,12 @@ import com.arshe.tvos.data.KEY_ALL
 import com.arshe.tvos.data.KEY_SOURCES
 import com.arshe.tvos.data.KEY_TV
 import com.arshe.tvos.data.HeroItem
+import com.arshe.tvos.data.Images
 import com.arshe.tvos.data.Lookup
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.graphics.ImageBitmap
 import com.arshe.tvos.data.rememberPoster
 import androidx.compose.runtime.produceState
 import androidx.compose.ui.platform.LocalContext
@@ -158,17 +163,17 @@ private fun TopBar(l: Launcher, time: String, vpn: Boolean) {
         Modifier.fillMaxWidth().padding(start = X.dp, end = X.dp, top = 44.dp).height(64.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        nav.forEachIndexed { i, item ->
-            if (i > 0 && item.isTab != nav[i - 1].isTab) {
-                Box(Modifier.padding(horizontal = 18.dp).size(2.dp, 30.dp).background(Color.White.copy(.25f)))
-            }
-            NavChip(
-                item = item,
-                focused = l.zone == Zone.Nav && l.navIdx == i,
-                selected = item.isTab && item.tile.key == selectedKey,
-            )
+        // Content apps on the left; shortcut icons pinned to the right, next to the clock.
+        val tabs = nav.withIndex().filter { it.value.isTab }
+        val shortcuts = nav.withIndex().filter { !it.value.isTab }
+        tabs.forEach { (i, item) ->
+            NavChip(item, focused = l.zone == Zone.Nav && l.navIdx == i, selected = item.tile.key == selectedKey)
         }
         Spacer(Modifier.weight(1f))
+        shortcuts.forEach { (i, item) ->
+            NavChip(item, focused = l.zone == Zone.Nav && l.navIdx == i, selected = false)
+        }
+        Spacer(Modifier.width(24.dp))
         if (vpn) Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.padding(end = 24.dp)) {
             Box(Modifier.size(9.dp).clip(CircleShape).background(J.On))
             BasicText("VPN", style = jText(24, 700, Color.White.copy(.85f)))
@@ -254,22 +259,22 @@ private fun NavGlyph(key: String, ink: Color) {
 @Composable
 fun Billboard(item: HeroItem) {
     Box(Modifier.fillMaxSize()) {
-        Crossfade(item, animationSpec = tween(700, delayMillis = 200), label = "billboard") { b ->
-            // Megogo cards only carry portrait posters; fetch the title's landscape backdrop first.
-            val context = LocalContext.current
-            val mgId = b.key.removePrefix("mg:").takeIf { b.key.startsWith("mg:") }
-            val resolved by produceState<Pair<String?, Boolean>>(null to (mgId == null), mgId) {
-                if (mgId != null) value = withContext(Dispatchers.IO) { Lookup.megogoBackdrop(context, mgId) } to true
-            }
-            val (backdrop, ready) = resolved
+        // Load first, swap after: the previous image stays until the next one is decoded, so
+        // switching never flashes black or a placeholder. No artwork at all → plain black.
+        val context = LocalContext.current
+        val loaded by produceState<Slide?>(null, item.key, item.poster) {
+            val mgId = item.key.removePrefix("mg:").takeIf { item.key.startsWith("mg:") }
+            val backdrop = mgId?.let { withContext(Dispatchers.IO) { Lookup.megogoBackdrop(context, it) } }
+            val url = backdrop ?: item.poster
+            val bmp = url?.let { Images.load(context, it, HERO_PX) }
+            value = Slide(item.key, bmp, if (backdrop != null) 0f else item.heroBias)
+        }
+        var shown by remember { mutableStateOf<Slide?>(null) }
+        LaunchedEffect(loaded) { loaded?.let { shown = it } }
+        Crossfade(shown, animationSpec = tween(600), label = "billboard") { slide ->
+            val bmp = slide?.image ?: return@Crossfade
             KenBurns {
-                val img by rememberPoster(if (ready) backdrop ?: b.poster else null, HERO_PX)
-                val bmp = img
-                if (bmp != null) Image(
-                    bmp, null, Modifier.fillMaxSize(),
-                    contentScale = ContentScale.Crop,
-                    alignment = BiasAlignment(0.3f, if (backdrop != null) 0f else b.heroBias),
-                ) else ArtCanvas(b.art, Modifier.fillMaxSize())
+                Image(bmp, null, Modifier.fillMaxSize(), contentScale = ContentScale.Crop, alignment = BiasAlignment(0.3f, slide.bias))
             }
         }
         // Scrims baked once: left for the copy, bottom for the rows.
@@ -322,6 +327,8 @@ private fun HeroCopy(hero: HeroItem?) {
     }
 }
 
+private data class Slide(val key: String, val image: ImageBitmap?, val bias: Float)
+
 // ---------------------------------------------------------------- rows
 
 /**
@@ -367,7 +374,7 @@ private fun LandscapeCard(item: HeroItem, focused: Boolean) {
         val thumb by rememberPoster(item.poster, 400)
         val t = thumb
         if (t != null) Image(t, null, Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
-        else ArtCanvas(item.art, Modifier.fillMaxSize())
+        else if (item.poster == null) ArtCanvas(item.art, Modifier.fillMaxSize())
         Box(Modifier.fillMaxSize().background(Brush.verticalGradient(.5f to Color.Transparent, 1f to Color.Black.copy(.75f))))
         if (item.live) Box(Modifier.align(Alignment.TopEnd).padding(12.dp)) { LivePill() }
         BasicText(
@@ -389,7 +396,7 @@ private fun PosterCard(item: HeroItem, focused: Boolean) {
         val img by rememberPoster(item.cover ?: item.poster, 200)
         val t = img
         if (t != null) Image(t, null, Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
-        else {
+        else if (item.cover == null && item.poster == null) {
             ArtCanvas(item.art, Modifier.fillMaxSize())
             BasicText(
                 item.title,

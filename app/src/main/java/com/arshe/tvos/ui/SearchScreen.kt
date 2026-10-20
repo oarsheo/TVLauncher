@@ -172,7 +172,6 @@ private fun ResultCard(item: HeroItem, focused: Boolean, portrait: Boolean) {
         val img by rememberPoster(if (portrait) item.cover ?: item.poster else item.poster, w)
         val t = img
         if (t != null) Image(t, null, Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
-        else ArtCanvas(item.art, Modifier.fillMaxSize())
         if (!portrait) {
             Box(Modifier.fillMaxSize().background(Brush.verticalGradient(.5f to Color.Transparent, 1f to Color.Black.copy(.75f))))
             BasicText(item.title, Modifier.align(Alignment.BottomStart).padding(14.dp), style = jText(22, 800), maxLines = 1, overflow = TextOverflow.Ellipsis)
