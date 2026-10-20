@@ -31,25 +31,30 @@ fun LauncherRoot(l: Launcher) {
     val time = rememberClock()
     val focus = remember { FocusRequester() }
 
+    // Read here (not inside SideEffect) so the rows rebuild whenever the TV state changes.
+    val a = l.ambi
     SideEffect {
         l.sheetRows = buildList {
-            val a = l.ambi
             if (a != null) {
+                // Actions read the live state at press time, never the snapshot the row was built from.
                 add(SheetRow("Ambilight", toggle = a.power, run = {
-                    l.ambiUpdate({ it.copy(power = !it.power) }) { JointSpace.setPower(!a.power) }
+                    val on = !(l.ambi?.power ?: return@SheetRow)
+                    l.ambiUpdate({ it.copy(power = on) }) { JointSpace.setPower(on) }
                 }))
                 fun mode(d: Int) {
-                    val m = Math.floorMod(a.mode + d, AMBI_MODES.size)
+                    val cur = l.ambi ?: return
+                    val m = Math.floorMod(cur.mode + d, AMBI_MODES.size)
                     l.ambiUpdate({ it.copy(mode = m, power = true) }) { JointSpace.setMode(m) }
                 }
                 add(SheetRow("Режим", value = AMBI_MODES[a.mode].first, adjust = ::mode, run = { mode(1) }))
                 add(SheetRow("Яркость", slider = a.brightness to 10, adjust = { d ->
-                    val v = (a.brightness + d).coerceIn(0, 10)
+                    val v = ((l.ambi ?: return@SheetRow).brightness + d).coerceIn(0, 10)
                     l.ambiUpdate({ it.copy(brightness = v) }) { JointSpace.setBrightness(v) }
                 }))
                 val step = SLEEP_STEPS.indexOfFirst { it >= a.sleepMin }.coerceAtLeast(0)
                 add(SheetRow("Таймер сна", chips = listOf("Выкл", "30", "60", "90", "120"), chip = step, gapBefore = true, adjust = { d ->
-                    val v = SLEEP_STEPS[(step + d).coerceIn(0, SLEEP_STEPS.size - 1)]
+                    val curStep = SLEEP_STEPS.indexOfFirst { it >= (l.ambi ?: return@SheetRow).sleepMin }.coerceAtLeast(0)
+                    val v = SLEEP_STEPS[(curStep + d).coerceIn(0, SLEEP_STEPS.size - 1)]
                     l.ambiUpdate({ it.copy(sleepMin = v) }) { JointSpace.setSleep(v) }
                 }))
             }

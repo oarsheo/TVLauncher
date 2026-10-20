@@ -49,7 +49,12 @@ import androidx.compose.ui.unit.em
 import androidx.compose.ui.unit.sp
 import com.arshe.tvos.data.ContentRow
 import com.arshe.tvos.data.HeroItem
+import com.arshe.tvos.data.Lookup
 import com.arshe.tvos.data.rememberPoster
+import androidx.compose.runtime.produceState
+import androidx.compose.ui.platform.LocalContext
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.delay
 
 private const val X = 96
@@ -190,13 +195,20 @@ private fun NavChip(label: String, focused: Boolean, selected: Boolean, accent: 
 private fun Billboard(item: HeroItem) {
     Box(Modifier.fillMaxSize()) {
         Crossfade(item, animationSpec = tween(700, delayMillis = 200), label = "billboard") { b ->
+            // Megogo cards only carry portrait posters; fetch the title's landscape backdrop first.
+            val context = LocalContext.current
+            val mgId = b.key.removePrefix("mg:").takeIf { b.key.startsWith("mg:") }
+            val resolved by produceState<Pair<String?, Boolean>>(null to (mgId == null), mgId) {
+                if (mgId != null) value = withContext(Dispatchers.IO) { Lookup.megogoBackdrop(context, mgId) } to true
+            }
+            val (backdrop, ready) = resolved
             KenBurns {
-                val img by rememberPoster(b.poster, 1920)
+                val img by rememberPoster(if (ready) backdrop ?: b.poster else null, 1920)
                 val bmp = img
                 if (bmp != null) Image(
                     bmp, null, Modifier.fillMaxSize(),
                     contentScale = ContentScale.Crop,
-                    alignment = BiasAlignment(0.3f, b.heroBias),
+                    alignment = BiasAlignment(0.3f, if (backdrop != null) 0f else b.heroBias),
                 ) else ArtCanvas(b.art, Modifier.fillMaxSize())
             }
         }

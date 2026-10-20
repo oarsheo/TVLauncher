@@ -22,6 +22,7 @@ import com.arshe.tvos.data.PKG_APPLETV
 import com.arshe.tvos.data.PKG_MEGOGO
 import com.arshe.tvos.data.PKG_NETFLIX
 import com.arshe.tvos.data.PKG_YOUTUBE
+import com.arshe.tvos.data.Lookup
 import com.arshe.tvos.data.SaverStore
 import com.arshe.tvos.data.YouTubeSource
 import com.arshe.tvos.ui.LauncherRoot
@@ -96,7 +97,10 @@ class MainActivity : ComponentActivity() {
                 row.items.take(8).forEachIndexed { i, it ->
                     val card = if (row.portrait) it.cover ?: it.poster else it.poster
                     card?.let { u -> Images.load(this@MainActivity, u, if (row.portrait) 260 else 480) }
-                    if (r == 0 && i < 6) it.poster?.let { u -> Images.load(this@MainActivity, u, 1920) }
+                    if (r == 0 && i < 6) {
+                        val hero = if (it.key.startsWith("mg:")) Lookup.megogoBackdrop(this@MainActivity, it.key.removePrefix("mg:")) ?: it.poster else it.poster
+                        hero?.let { u -> Images.load(this@MainActivity, u, 1920) }
+                    }
                 }
             }
         }

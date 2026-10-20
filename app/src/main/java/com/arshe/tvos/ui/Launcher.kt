@@ -29,6 +29,8 @@ import com.arshe.tvos.data.PKG_MEGOGO
 import com.arshe.tvos.data.PKG_NETFLIX
 import com.arshe.tvos.data.PKG_YOUTUBE
 import com.arshe.tvos.data.Recent
+import com.arshe.tvos.data.show
+import android.net.Uri
 import com.arshe.tvos.data.Source
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
@@ -90,20 +92,21 @@ class Launcher(
     val tabCount: Int get() = nav.count { it.isTab }
     val tab: HeroItem? get() = nav.filter { it.isTab }.getOrNull(tabIdx)?.tile
 
-    private fun recentItems(owner: HeroItem): List<HeroItem> = recents.filter { it.pkg == owner.key }.map { r ->
+    private fun recentItems(owner: HeroItem): List<HeroItem> = recents.filter { it.pkg == owner.key }.distinctBy { it.show }.map { r ->
         val left = if (r.duration > 0 && r.position > 0) ((r.duration - r.position) / 60_000).coerceAtLeast(1) else null
+        val episode = r.title.takeIf { it != r.show }
         HeroItem(
-            key = "np:${r.pkg}:${r.title}",
+            key = "np:${r.pkg}:${r.show}",
             app = owner.app,
             brand = owner.brand,
-            title = r.title,
-            meta = listOfNotNull("Вы смотрели", r.subtitle.ifBlank { null }, left?.let { "осталось $it мин" }).joinToString(" · "),
+            title = r.show,
+            meta = listOfNotNull("Вы смотрели", episode ?: r.subtitle.ifBlank { null }, left?.let { "осталось $it мин" }).joinToString(" · "),
             desc = "",
             art = owner.art,
             poster = r.art,
             progress = if (r.duration > 0) (r.position.toFloat() / r.duration).coerceIn(0f, 1f) else null,
             primary = "Продолжить",
-            action = owner.action,
+            action = r.link?.let { Action.Launch(Intent(Intent.ACTION_VIEW, Uri.parse(it)).setPackage(r.pkg)) } ?: owner.action,
         )
     }
 
@@ -156,7 +159,11 @@ class Launcher(
     /** Optimistic update + fire-and-forget call to the TV. */
     fun ambiUpdate(change: (AmbiState) -> AmbiState, call: suspend () -> Unit) {
         ambi = ambi?.let(change)
-        scope.launch { call() }
+        scope.launch {
+            call()
+            // Re-sync with what the TV actually did.
+            JointSpace.state()?.let { ambi = it }
+        }
     }
 
     val heroItem: HeroItem?

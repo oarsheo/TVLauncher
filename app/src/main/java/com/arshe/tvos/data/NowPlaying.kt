@@ -24,6 +24,8 @@ data class Recent(
     val position: Long,
     val duration: Long,
     val updated: Long,
+    /** Deep link resolved by [Lookup] (exact title), when the session didn't give us one. */
+    val link: String? = null,
 )
 
 /**
@@ -38,9 +40,11 @@ object NowPlaying {
 
     private lateinit var file: File
     private lateinit var artDir: File
+    private lateinit var app: Context
 
     fun init(context: Context) {
         if (::file.isInitialized) return
+        app = context.applicationContext
         file = File(context.filesDir, "recent.json")
         artDir = File(context.filesDir, "art").apply { mkdirs() }
         _items.value = runCatching {
@@ -50,10 +54,12 @@ object NowPlaying {
                     Recent(
                         getString("pkg"), getString("title"), optString("subtitle"),
                         optString("art").ifEmpty { null }, optLong("pos"), optLong("dur"), optLong("t"),
+                        optString("link").ifEmpty { null },
                     )
                 }
             }
         }.getOrDefault(emptyList())
+        _items.value.forEach(::enrich)
     }
 
     fun record(pkg: String, meta: MediaMetadata, state: PlaybackState?) {
@@ -71,10 +77,28 @@ object NowPlaying {
             position = state?.position?.takeIf { it > 0 } ?: prev?.position ?: 0,
             duration = meta.getLong(MediaMetadata.METADATA_KEY_DURATION).takeIf { it > 0 } ?: prev?.duration ?: 0,
             updated = System.currentTimeMillis(),
+            link = prev?.link,
         )
-        val list = (listOf(item) + _items.value.filterNot { it.pkg == pkg && it.title == title }).take(MAX)
+        // One entry per show: a new episode replaces the previous one of the same series.
+        val show = item.show
+        val list = (listOf(item) + _items.value.filterNot { it.pkg == pkg && (it.title == title || it.show == show) }).take(MAX)
         _items.value = list
         persist(list)
+        enrich(item)
+    }
+
+    /** Apps like Megogo/Netflix publish no artwork: look the show up by name in the background. */
+    private fun enrich(r: Recent) {
+        if (r.link != null || r.pkg !in setOf(PKG_MEGOGO, PKG_NETFLIX, PKG_APPLETV)) return
+        Thread {
+            val found = Lookup.find(app, r.pkg, r.show) ?: return@Thread
+            val cur = _items.value
+            val list = cur.map {
+                if (it.pkg == r.pkg && it.show == r.show) it.copy(art = it.art ?: found.backdrop, link = found.link) else it
+            }
+            _items.value = list
+            persist(list)
+        }.start()
     }
 
     fun updatePosition(pkg: String, state: PlaybackState) {
@@ -102,7 +126,8 @@ object NowPlaying {
         val arr = JSONArray()
         list.forEach {
             arr.put(JSONObject().put("pkg", it.pkg).put("title", it.title).put("subtitle", it.subtitle)
-                .put("art", it.art ?: "").put("pos", it.position).put("dur", it.duration).put("t", it.updated))
+                .put("art", it.art ?: "").put("pos", it.position).put("dur", it.duration).put("t", it.updated)
+                .put("link", it.link ?: ""))
         }
         runCatching { file.writeText(arr.toString()) }
         // Drop artwork no longer referenced.
@@ -110,6 +135,12 @@ object NowPlaying {
         artDir.listFiles()?.filter { it.absolutePath !in keep }?.forEach { it.delete() }
     }
 }
+
+/** The series name when the session title is an episode ("Сезон 5, Серія 10…" + "Гра престолів"). */
+val Recent.show: String
+    get() = if (pkg in setOf(PKG_MEGOGO, PKG_NETFLIX, PKG_APPLETV) && subtitle.isNotBlank() && EPISODE.containsMatchIn(title)) subtitle else title
+
+private val EPISODE = Regex("""(?i)(сезон|серія|серия|season|episode|эпизод|епізод|\bS\d+\s*:?\s*E\d+)""")
 
 class NowPlayingListener : NotificationListenerService() {
     private val callbacks = mutableMapOf<MediaSession, MediaController.Callback>()
