@@ -40,7 +40,6 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shadow
-import androidx.compose.ui.graphics.CompositingStrategy
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.style.TextAlign
@@ -102,10 +101,9 @@ fun HomeScreen(l: Launcher, time: String, vpn: Boolean) {
     Box(Modifier.fillMaxSize()) {
         if (hero != null) Billboard(hero)
 
-        // Everything above the moving billboard is cached as one GPU texture: while only the
-        // background animates, each frame is a texture blit instead of re-drawing every
-        // row, card and text.
-        Box(Modifier.fillMaxSize().graphicsLayer { compositingStrategy = CompositingStrategy.Offscreen }) {
+        // No offscreen layer here: it saved CPU on the 2021 set only during the 20 s push-in,
+        // but cost a full-screen GPU pass on every frame, and the 2024 set is GPU-bound.
+        Box(Modifier.fillMaxSize()) {
 
         // Copy: always visible, it describes whatever is focused.
         Box(Modifier.offset(X.dp, 170.dp).size(1100.dp, 390.dp), contentAlignment = Alignment.BottomStart) {
