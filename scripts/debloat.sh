@@ -57,6 +57,7 @@ TIER2_PKGS=(
   org.droidtv.nettv_launcherapp
   org.droidtv.eum                    # built-in e-manual
   org.droidtv.dropboxprovider
+  com.google.android.apps.mediashell # Chromecast built-in (skip if you cast from a phone)
 )
 
 PKGS=("${TIER1[@]}")

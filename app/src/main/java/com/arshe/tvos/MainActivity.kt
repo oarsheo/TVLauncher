@@ -24,6 +24,7 @@ import com.arshe.tvos.data.PKG_MEGOGO
 import com.arshe.tvos.data.PKG_NETFLIX
 import com.arshe.tvos.data.PKG_YOUTUBE
 import com.arshe.tvos.data.Lookup
+import com.arshe.tvos.data.Maintenance
 import com.arshe.tvos.data.SaverStore
 import com.arshe.tvos.data.Secrets
 import com.arshe.tvos.data.YouTubeSource
@@ -61,6 +62,12 @@ class MainActivity : ComponentActivity() {
         lifecycleScope.launch { NowPlaying.items.collect { launcher.recents = it } }
 
         setContent { LauncherRoot(launcher) }
+
+        // Fallback for TVs that never sit idle long enough for the screensaver to start.
+        if (Maintenance.due(this, 72)) lifecycleScope.launch {
+            delay(5 * 60 * 1000L)
+            if (Maintenance.due(this@MainActivity, 72)) Maintenance.run(this@MainActivity)
+        }
 
         // OTA: look for a new release now and every 6 hours; install only while hidden.
         lifecycleScope.launch {

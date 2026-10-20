@@ -47,6 +47,10 @@ import androidx.savedstate.setViewTreeSavedStateRegistryOwner
 import com.arshe.tvos.data.HERO_PX
 import com.arshe.tvos.data.Action
 import com.arshe.tvos.data.HeroItem
+import com.arshe.tvos.data.Maintenance
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import com.arshe.tvos.data.SaverStore
 import com.arshe.tvos.data.rememberClock
 import com.arshe.tvos.data.rememberPoster
@@ -162,6 +166,8 @@ class TvosDream : DreamService(), LifecycleOwner, SavedStateRegistryOwner {
 
     override fun onDreamingStarted() {
         super.onDreamingStarted()
+        // The TV is on but idle: a good moment for the daily housekeeping.
+        if (Maintenance.due(this, 20)) CoroutineScope(Dispatchers.IO).launch { Maintenance.run(applicationContext) }
         if (registry.currentState != Lifecycle.State.DESTROYED) registry.currentState = Lifecycle.State.RESUMED
     }
 
