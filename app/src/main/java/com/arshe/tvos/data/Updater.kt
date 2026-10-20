@@ -58,10 +58,12 @@ object Updater {
         val f = apk(context).takeIf { it.exists() } ?: return
         status = Status(State.Installing, status.version)
         val pkg = context.packageName
+        // system_server may not read /sdcard (SELinux), so stage the APK in /data/local/tmp first.
+        val tmp = "/data/local/tmp/tvos-update.apk"
         LocalAdb.shell(
             context,
-            "nohup sh -c 'pm install -r \"${f.absolutePath}\" && cmd package compile -m speed -f $pkg; " +
-                "rm -f \"${f.absolutePath}\"; am start -a android.intent.action.MAIN -c android.intent.category.HOME' >/dev/null 2>&1 &",
+            "nohup sh -c 'cp \"${f.absolutePath}\" $tmp && pm install -r $tmp && cmd package compile -m speed -f $pkg; " +
+                "rm -f $tmp \"${f.absolutePath}\"; am start -a android.intent.action.MAIN -c android.intent.category.HOME' >/dev/null 2>&1 &",
         )
     }
 
