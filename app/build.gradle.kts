@@ -17,11 +17,14 @@ android {
         applicationId = "com.arshe.tvos"
         minSdk = 30
         targetSdk = 34
-        versionCode = 3
-        versionName = "0.3"
+        versionCode = 4
+        versionName = "0.4"
         buildConfigField("String", "YOUTUBE_API_KEY", "\"${localProps.getProperty("youtube.apiKey", "")}\"")
         // Credentials from scripts/philips-pair.py; enable Ambilight / sleep timer / standby.
         buildConfigField("String", "JOINTSPACE_USER", "\"${localProps.getProperty("jointspace.user", "")}\"")
+        // OTA updates: GitHub repo with releases tagged v<versionCode>; token only needed for a private repo.
+        buildConfigField("String", "UPDATE_REPO", "\"${localProps.getProperty("update.repo", "oarsheo/TVLauncher")}\"")
+        buildConfigField("String", "UPDATE_TOKEN", "\"${localProps.getProperty("github.token", "")}\"")
         buildConfigField("String", "JOINTSPACE_PASS", "\"${localProps.getProperty("jointspace.pass", "")}\"")
     }
 
@@ -50,4 +53,6 @@ dependencies {
     implementation("androidx.lifecycle:lifecycle-runtime-compose:2.11.0")
     implementation("androidx.core:core-ktx:1.19.1")
     implementation("androidx.tvprovider:tvprovider:1.1.0")
+    // Applies the bundled baseline profiles (Compose's + app/src/main/baseline-prof.txt) on sideloaded installs.
+    implementation("androidx.profileinstaller:profileinstaller:1.4.1")
 }

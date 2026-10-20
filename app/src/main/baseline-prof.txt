@@ -1,0 +1,3 @@
+# Precompile the whole launcher (it's small) on top of the Compose library profiles.
+HSPLcom/arshe/tvos/**->**(**)**
+Lcom/arshe/tvos/**;

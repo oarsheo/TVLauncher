@@ -20,6 +20,7 @@ import com.arshe.tvos.data.AMBI_MODES
 import com.arshe.tvos.data.AppsRepository
 import com.arshe.tvos.data.JointSpace
 import com.arshe.tvos.data.SLEEP_STEPS
+import com.arshe.tvos.data.Updater
 import com.arshe.tvos.data.rememberClock
 import com.arshe.tvos.data.rememberNetStatus
 
@@ -59,6 +60,7 @@ fun LauncherRoot(l: Launcher) {
                 })
             }
             add(SheetRow("Заставка", gapBefore = true) { l.sheetOpen = false; l.startScreensaver() })
+            if (Updater.enabled) add(SheetRow("Обновления", l.updateText) { l.checkUpdates(installNow = true) })
             add(SheetRow("Перезагрузить ТВ", danger = true) { l.sheetOpen = false; l.reboot() })
             if (JointSpace.configured) add(SheetRow("Выключить ТВ", danger = true) {
                 l.sheetOpen = false

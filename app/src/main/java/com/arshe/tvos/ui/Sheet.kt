@@ -27,6 +27,12 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicText
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.remember
+import androidx.compose.foundation.relocation.BringIntoViewRequester
+import androidx.compose.foundation.relocation.bringIntoViewRequester
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -56,8 +62,18 @@ fun ControlSheet(l: Launcher, time: String) {
                     BasicText("Быстрые настройки", Modifier.weight(1f), style = jText(40, 800))
                     BasicText(time, style = jText(28, 600, Color.White.copy(.6f)))
                 }
-                l.sheetRows.forEachIndexed { i, row -> SheetRowView(row, i == l.sheetFocus) }
-                Spacer(Modifier.weight(1f))
+                // Rows scroll so the focused one is always on screen.
+                Column(
+                    Modifier.weight(1f).fillMaxWidth().verticalScroll(rememberScrollState()).padding(vertical = 4.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    l.sheetRows.forEachIndexed { i, row ->
+                        val on = i == l.sheetFocus
+                        val req = remember { BringIntoViewRequester() }
+                        LaunchedEffect(on) { if (on) req.bringIntoView() }
+                        SheetRowView(row, on, Modifier.bringIntoViewRequester(req))
+                    }
+                }
                 BasicText("Menu или Back — закрыть", Modifier.padding(horizontal = 20.dp), style = jText(24, 600, Color.White.copy(.45f)))
             }
         }
@@ -65,12 +81,12 @@ fun ControlSheet(l: Launcher, time: String) {
 }
 
 @Composable
-private fun SheetRowView(row: SheetRow, on: Boolean) {
+private fun SheetRowView(row: SheetRow, on: Boolean, modifier: Modifier = Modifier) {
     if (row.gapBefore) Spacer(Modifier.height(14.dp))
     val s by animateFloatAsState(if (on) 1.02f else 1f, tween(200, easing = J.ButtonSpring), label = "rs")
     val ink = if (on) Color.Black else Color.White
     Row(
-        Modifier.fillMaxWidth().heightIn(min = 84.dp)
+        modifier.fillMaxWidth().heightIn(min = 84.dp)
             .graphicsLayer { scaleX = s; scaleY = s }
             .clip(RoundedCornerShape(10.dp))
             .background(if (on) Color.White else Color.Transparent)

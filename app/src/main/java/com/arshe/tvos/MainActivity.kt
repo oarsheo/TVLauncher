@@ -28,7 +28,9 @@ import com.arshe.tvos.data.SaverStore
 import com.arshe.tvos.data.YouTubeSource
 import com.arshe.tvos.ui.LauncherRoot
 import com.arshe.tvos.ui.isHomeIntent
+import com.arshe.tvos.data.Updater
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
@@ -58,6 +60,14 @@ class MainActivity : ComponentActivity() {
 
         setContent { LauncherRoot(launcher) }
 
+        // OTA: look for a new release now and every 6 hours; install only while hidden.
+        lifecycleScope.launch {
+            while (true) {
+                if (Updater.check(this@MainActivity) && !launcher.visible) Updater.install(this@MainActivity)
+                delay(6 * 60 * 60 * 1000L)
+            }
+        }
+
     }
 
     override fun onStart() {
@@ -72,6 +82,8 @@ class MainActivity : ComponentActivity() {
         launcher.visible = false
         Images.clear()
         BitmapCache.clear()
+        // A downloaded update goes in while something else is on screen.
+        if (Updater.status.state == Updater.State.Ready) lifecycleScope.launch { Updater.install(this@MainActivity) }
     }
 
     override fun onTrimMemory(level: Int) {

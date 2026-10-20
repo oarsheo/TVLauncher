@@ -39,9 +39,19 @@ adb shell settings put secure screensaver_components com.arshe.tvos/com.arshe.tv
 adb shell settings put system screen_off_timeout 600000
 ```
 
+## Updates
+
+The launcher checks `github.com/<update.repo>` releases (tag `v<versionCode>`, `.apk` asset) at
+start and every 6 hours, downloads newer builds and installs them through its local ADB link
+while another app is on screen, then AOT-compiles itself. Publish with `scripts/release.sh "notes"`
+(needs `gh auth login`). For a private repo put a read-only fine-grained token into
+`local.properties` as `github.token`.
+
 ## Scripts
 
 - `scripts/tv-metrics.sh <ip>`: snapshot of memory, CPU, packages and services into `reports/`.
+- `scripts/release.sh "notes"`: bump the version, build and publish a GitHub release for OTA.
+- `scripts/philips-pair.py <ip> request|grant <PIN>`: JointSpace pairing for the quick settings.
 - `scripts/debloat.sh <ip> [--apply] [--tier2]`: removes bloat per user with `pm uninstall --user 0` (reversible). Without `--apply` it is a dry run.
 
 ## Docs

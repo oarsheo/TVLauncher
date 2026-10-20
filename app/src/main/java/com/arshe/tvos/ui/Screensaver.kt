@@ -7,6 +7,7 @@ import androidx.compose.animation.Crossfade
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
@@ -53,7 +54,7 @@ import kotlinx.coroutines.delay
 
 private const val SLIDE_MS = 40_000
 
-/** Aerial-style slideshow of catalog backdrops; text drifts slowly to protect the OLED panel. */
+/** Aerial-style slideshow of catalog backdrops; the caption hops corners to protect the OLED panel. */
 @Composable
 fun Screensaver(items: List<HeroItem>, onCurrent: (HeroItem?) -> Unit) {
     var index by remember { mutableIntStateOf(0) }
@@ -66,10 +67,19 @@ fun Screensaver(items: List<HeroItem>, onCurrent: (HeroItem?) -> Unit) {
         }
     }
     val time = rememberClock()
-    val t = rememberInfiniteTransition(label = "saver")
-    val drift by t.animateFloat(
-        0f, 1f, infiniteRepeatable(tween(240_000, easing = LinearEasing), RepeatMode.Restart), label = "drift",
-    )
+    // Every 90 s the caption fades out and reappears in another corner (OLED-safe, no pixel crawl).
+    var spot by remember { mutableIntStateOf(0) }
+    var shown by remember { mutableStateOf(true) }
+    LaunchedEffect(Unit) {
+        while (true) {
+            delay(90_000)
+            shown = false
+            delay(1200)
+            spot = (spot + 1) % SPOTS.size
+            shown = true
+        }
+    }
+    val captionA by animateFloatAsState(if (shown) 1f else 0f, tween(1200), label = "caption")
 
     Box(Modifier.fillMaxSize().background(Color.Black)) {
         Crossfade(current, animationSpec = tween(2400), label = "slide") { item ->
@@ -96,12 +106,9 @@ fun Screensaver(items: List<HeroItem>, onCurrent: (HeroItem?) -> Unit) {
                 Brush.verticalGradient(.62f to Color.Transparent, 1f to Color.Black.copy(.65f)),
             ),
         )
-        // Four-point drift loop, ~1 px every couple of seconds.
+        val (align, x, y) = SPOTS[spot]
         Column(
-            Modifier.align(Alignment.BottomStart).offset(120.dp, (-80).dp).graphicsLayer {
-                val (dx, dy) = driftAt(drift)
-                translationX = dx; translationY = dy
-            },
+            Modifier.align(align).offset(x.dp, y.dp).graphicsLayer { alpha = captionA },
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
             BasicText(time, style = jText(64, 700, Color.White.copy(.72f), tracking = TitleTracking))
@@ -115,15 +122,12 @@ fun Screensaver(items: List<HeroItem>, onCurrent: (HeroItem?) -> Unit) {
     }
 }
 
-private fun driftAt(f: Float): Pair<Float, Float> {
-    val pts = listOf(0f to 0f, 30f to -12f, 52f to 6f, 18f to 16f, 0f to 0f)
-    val seg = (f * 4).coerceAtMost(3.999f)
-    val i = seg.toInt()
-    val k = seg - i
-    val (x0, y0) = pts[i]
-    val (x1, y1) = pts[i + 1]
-    return (x0 + (x1 - x0) * k) to (y0 + (y1 - y0) * k)
-}
+private val SPOTS = listOf(
+    Triple(Alignment.BottomStart, 120, -80),
+    Triple(Alignment.BottomEnd, -120, -80),
+    Triple(Alignment.TopEnd, -120, 90),
+    Triple(Alignment.TopStart, 120, 90),
+)
 
 /** System screensaver hosting the same slideshow. */
 class TvosDream : DreamService(), LifecycleOwner, SavedStateRegistryOwner {
@@ -172,8 +176,12 @@ class TvosDream : DreamService(), LifecycleOwner, SavedStateRegistryOwner {
         super.onDetachedFromWindow()
     }
 
+    /** Keys pressed before the dream appeared (e.g. the OK that started it) must not end it. */
+    private val downs = mutableSetOf<Int>()
+
     override fun dispatchKeyEvent(event: KeyEvent): Boolean {
-        if (event.action != KeyEvent.ACTION_UP) return true
+        if (event.action == KeyEvent.ACTION_DOWN) { downs += event.keyCode; return true }
+        if (event.action != KeyEvent.ACTION_UP || !downs.remove(event.keyCode)) return true
         val ok = event.keyCode == KeyEvent.KEYCODE_DPAD_CENTER || event.keyCode == KeyEvent.KEYCODE_ENTER
         val action = current?.action
         if (ok && action is Action.Launch) {

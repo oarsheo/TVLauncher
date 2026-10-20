@@ -16,10 +16,13 @@ import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.nativeKeyCode
 import androidx.compose.ui.input.key.type
 import com.arshe.tvos.data.Action
+import androidx.compose.ui.graphics.Color
 import com.arshe.tvos.data.AmbiState
+import com.arshe.tvos.data.Brand
 import com.arshe.tvos.data.AppsRepository
 import com.arshe.tvos.data.JointSpace
 import com.arshe.tvos.data.LocalAdb
+import com.arshe.tvos.data.Updater
 import com.arshe.tvos.data.HeroItem
 import com.arshe.tvos.data.ContentRow
 import com.arshe.tvos.data.Detail
@@ -67,6 +70,12 @@ data class NavItem(val label: String, val tile: HeroItem, val isTab: Boolean)
 
 val CONTENT_APPS = listOf(PKG_NETFLIX, PKG_YOUTUBE, PKG_MEGOGO, PKG_APPLETV)
 
+/** Pseudo-app for the aggregated "Главная" page. */
+val HOME_TAB = HeroItem(
+    key = "special:home", app = "Главная", brand = Brand(Color.White, "★", Color.Black),
+    title = "Главная", meta = "", desc = "", art = Arts.graphite, action = Action.OpenApps,
+)
+
 /** Whole launcher state + D-pad handling. */
 class Launcher(
     private val context: Context,
@@ -85,7 +94,8 @@ class Launcher(
     val nav: List<NavItem>
         get() {
             val by = tiles.associateBy { it.key }
-            val tabs = CONTENT_APPS.mapNotNull { by[it] }.map { NavItem(it.title, it, isTab = true) }
+            val tabs = listOf(NavItem("Главная", HOME_TAB, isTab = true)) +
+                CONTENT_APPS.mapNotNull { by[it] }.map { NavItem(it.title, it, isTab = true) }
             val shortcuts = listOfNotNull(
                 by[KEY_TV]?.let { NavItem("ТВ", it, false) },
                 by[KEY_SOURCES]?.let { NavItem("Входы", it, false) },
@@ -98,10 +108,10 @@ class Launcher(
     val tabCount: Int get() = nav.count { it.isTab }
     val tab: HeroItem? get() = nav.filter { it.isTab }.getOrNull(tabIdx)?.tile
 
-    private fun recentItems(owner: HeroItem): List<HeroItem> = recents.filter { it.pkg == owner.key }.distinctBy { it.show }.map { r ->
+    private fun recentItem(r: Recent, owner: HeroItem): HeroItem {
         val left = if (r.duration > 0 && r.position > 0) ((r.duration - r.position) / 60_000).coerceAtLeast(1) else null
         val episode = r.title.takeIf { it != r.show }
-        HeroItem(
+        return HeroItem(
             key = "np:${r.pkg}:${r.show}",
             app = owner.app,
             brand = owner.brand,
@@ -116,10 +126,31 @@ class Launcher(
         )
     }
 
+    /** Recents are stored newest first; one card per show. */
+    private fun recentItems(owner: HeroItem?): List<HeroItem> {
+        val by = tiles.associateBy { it.key }
+        return recents.filter { owner == null || it.pkg == owner.key }
+            .mapNotNull { r -> by[r.pkg]?.let { recentItem(r, it) } }
+            .distinctBy { it.key }
+    }
+
+    /** "Главная": everything you were watching, then the head of every service. */
+    private fun homeRows(): List<ContentRow> {
+        val by = tiles.associateBy { it.key }
+        val heads = CONTENT_APPS.mapNotNull { pkg ->
+            val first = pages[pkg]?.firstOrNull() ?: return@mapNotNull null
+            val name = by[pkg]?.title ?: return@mapNotNull null
+            ContentRow("$name · ${first.title.substringBefore(" на ")}", first.items.take(12), first.portrait)
+        }
+        val mine = recentItems(null)
+        return listOfNotNull(mine.takeIf { it.isNotEmpty() }?.let { ContentRow("Продолжить просмотр", it) }) + heads
+    }
+
     /** Rows of the selected app: the user's own "continue" first, then the catalog. */
     val pageRows: List<ContentRow>
         get() {
             val t = tab ?: return emptyList()
+            if (t === HOME_TAB) return homeRows()
             val mine = (recentItems(t) + continueItems.filter { it.app == t.app }).distinctBy { it.title }
             return listOfNotNull(mine.takeIf { it.isNotEmpty() }?.let { ContentRow("Продолжить просмотр", it) }) +
                 pages[t.key].orEmpty()
@@ -129,6 +160,10 @@ class Launcher(
     private val heroPool: List<HeroItem>
         get() {
             val rows = pageRows
+            if (tab === HOME_TAB) {
+                // Two highlights from each source, landscape art only.
+                return rows.flatMap { r -> r.items.filter { !r.portrait || it.key.startsWith("mg:") }.take(2) }.distinctBy { it.key }.take(10)
+            }
             val catalog = rows.firstOrNull { it.title != "Продолжить просмотр" }?.items.orEmpty()
             return (rows.firstOrNull()?.items?.take(1).orEmpty() + catalog.take(6)).distinctBy { it.key }
         }
@@ -202,6 +237,23 @@ class Launcher(
     }
 
     fun ambiCall(call: suspend () -> Unit) { scope.launch { call() } }
+
+    var updateText by mutableStateOf("Проверить")
+
+    fun checkUpdates(installNow: Boolean) {
+        scope.launch {
+            updateText = "Проверяю…"
+            val ready = Updater.check(context)
+            val st = Updater.status
+            updateText = when (st.state) {
+                Updater.State.UpToDate -> "Актуальная · v${com.arshe.tvos.BuildConfig.VERSION_CODE}"
+                Updater.State.Ready -> "Есть v${st.version}"
+                Updater.State.Failed -> "Не удалось проверить"
+                else -> "Проверить"
+            }
+            if (ready && installNow) { updateText = "Устанавливаю v${st.version}…"; Updater.install(context) }
+        }
+    }
 
     fun startScreensaver() {
         // SystemUI's public "start dreaming now" entry point.
@@ -456,7 +508,7 @@ class Launcher(
                     when {
                         item === tab -> run(item.action)
                         heroBtn == 1 && hasDetails(item) -> openDetail(item)
-                        heroBtn == 1 -> run(tab?.action ?: item.action)
+                        heroBtn == 1 -> run(ownerOf(item)?.action ?: tab?.action ?: item.action)
                         else -> run(item.action)
                     }
                 }
