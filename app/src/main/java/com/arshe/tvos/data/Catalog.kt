@@ -194,7 +194,7 @@ class MegogoSource(private val context: Context, private val brand: Brand, priva
                 meta = label,
                 desc = "",
                 art = art,
-                poster = img,
+                poster = "$img/pt/r1280x0",
                 cover = "$img/pt/r386x544",
                 heroBias = -0.55f,
                 primary = "Смотреть",

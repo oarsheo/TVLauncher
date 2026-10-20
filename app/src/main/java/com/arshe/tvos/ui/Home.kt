@@ -371,7 +371,7 @@ fun Strip(
 @Composable
 private fun LandscapeCard(item: HeroItem, focused: Boolean) {
     FocusCard(focused, LAND_W.dp, LAND_H.dp) {
-        val thumb by rememberPoster(item.poster, 400)
+        val thumb by rememberPoster(Images.cardUrl(item.poster), 400)
         val t = thumb
         if (t != null) Image(t, null, Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
         else if (item.poster == null) ArtCanvas(item.art, Modifier.fillMaxSize())

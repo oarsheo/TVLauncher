@@ -134,7 +134,7 @@ class MainActivity : ComponentActivity() {
             // Only what the first screen shows: the rest loads on demand, keeping startup memory low.
             rows.take(1).forEachIndexed { r, row ->
                 row.items.take(5).forEachIndexed { i, it ->
-                    val card = if (row.portrait) it.cover ?: it.poster else it.poster
+                    val card = if (row.portrait) it.cover ?: it.poster else Images.cardUrl(it.poster)
                     card?.let { u -> Images.load(this@MainActivity, u, if (row.portrait) 200 else 400) }
                     if (r == 0 && i < 2) {
                         val hero = if (it.key.startsWith("mg:")) Lookup.megogoBackdrop(this@MainActivity, it.key.removePrefix("mg:")) ?: it.poster else it.poster

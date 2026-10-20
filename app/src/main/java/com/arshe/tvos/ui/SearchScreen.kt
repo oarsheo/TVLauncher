@@ -32,6 +32,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.arshe.tvos.data.HeroItem
+import com.arshe.tvos.data.Images
 import com.arshe.tvos.data.rememberPoster
 
 private const val KEY_W = 74
@@ -169,7 +170,7 @@ private fun ResultCard(item: HeroItem, focused: Boolean, portrait: Boolean) {
     val w = if (portrait) POSTER_W else CARD_W
     val h = if (portrait) POSTER_H else CARD_H
     FocusCard(focused, w.dp, h.dp) {
-        val img by rememberPoster(if (portrait) item.cover ?: item.poster else item.poster, w)
+        val img by rememberPoster(if (portrait) item.cover ?: item.poster else Images.cardUrl(item.poster), w)
         val t = img
         if (t != null) Image(t, null, Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
         if (!portrait) {

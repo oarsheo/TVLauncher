@@ -31,6 +31,19 @@ object Images {
         override fun sizeOf(key: String, value: ImageBitmap) = value.width * value.height * 2
     }
 
+    /**
+     * The same artwork in a size fit for a ~400 px card. Sources serve resized copies, so a
+     * card downloads and decodes ~10x fewer pixels than the billboard version.
+     */
+    fun cardUrl(url: String?): String? = url?.let {
+        when {
+            "images.justwatch.com/" in it -> it.replace(Regex("/s\\d+/"), "/s640/")
+            "i.ytimg.com/vi/" in it -> it.replace(Regex("/[a-z]*default(_live)?\\.jpg"), "/hqdefault$1.jpg")
+            "vcdn.biz/static/" in it -> it.replace(Regex("/pt/r\\d+x\\d+"), "/pt/r400x0")
+            else -> it
+        }
+    }
+
     /** Drop decoded images (the disk cache stays); called when the launcher goes to the background. */
     fun clear() = cache.evictAll()
 
