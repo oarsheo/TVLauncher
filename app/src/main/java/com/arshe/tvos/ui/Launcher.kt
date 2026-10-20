@@ -114,8 +114,9 @@ class Launcher(
     val nav: List<NavItem>
         get() {
             val by = tiles.associateBy { it.key }
+            // Content apps follow the user's order from "Все приложения".
             val tabs = listOf(NavItem("Главная", HOME_TAB, isTab = true)) +
-                CONTENT_APPS.mapNotNull { by[it] }.map { NavItem(it.title, it, isTab = true) }
+                contentTiles.map { NavItem(it.title, it, isTab = true) }
             val shortcuts = listOfNotNull(
                 NavItem("Поиск", SEARCH_TILE, false),
                 by[KEY_TV]?.let { NavItem("ТВ", it, false) },
@@ -155,13 +156,14 @@ class Launcher(
             .distinctBy { it.key }
     }
 
-    /** "Главная": everything you were watching, then the head of every service. */
+    /** Installed content apps in the user's order. */
+    private val contentTiles: List<HeroItem> get() = tiles.filter { it.key in CONTENT_APPS }
+
+    /** "Главная": everything you were watching, then the head of every service (in the user's order). */
     private fun homeRows(): List<ContentRow> {
-        val by = tiles.associateBy { it.key }
-        val heads = CONTENT_APPS.mapNotNull { pkg ->
-            val first = pages[pkg]?.firstOrNull() ?: return@mapNotNull null
-            val name = by[pkg]?.title ?: return@mapNotNull null
-            ContentRow("$name · ${first.title.substringBefore(" на ")}", first.items.take(12), first.portrait, by[pkg]?.brand)
+        val heads = contentTiles.mapNotNull { t ->
+            val first = pages[t.key]?.firstOrNull() ?: return@mapNotNull null
+            ContentRow("${t.title} · ${first.title.substringBefore(" на ")}", first.items.take(12), first.portrait, t.brand)
         }
         val mine = recentItems(null)
         return listOfNotNull(mine.takeIf { it.isNotEmpty() }?.let { ContentRow("Продолжить просмотр", it) }) + heads
@@ -591,7 +593,7 @@ class Launcher(
             K.Right -> { if (!moveMode) { zone = Zone.Hero; appsBtn = 0 }; return }
             K.Up -> (appsFocus - 1).takeIf { it >= 0 }
             K.Down -> (appsFocus + 1).takeIf { it < n }
-            K.Ok -> { if (moveMode) { moveMode = false; snapshot = null; repo.saveOrder(appsOrder); tiles = orderedTiles }; return }
+            K.Ok -> { if (moveMode) commitOrder(); return }
             K.Back -> {
                 if (moveMode) { moveMode = false; snapshot?.let { appsOrder = it }; snapshot = null } else goHome()
                 return
@@ -604,6 +606,17 @@ class Launcher(
             appsOrder = o
         }
         appsFocus = t
+    }
+
+    /** Save a new app order; the top bar keeps the same tab selected even if it moved. */
+    private fun commitOrder() {
+        val selected = tab?.key
+        moveMode = false
+        snapshot = null
+        repo.saveOrder(appsOrder)
+        tiles = orderedTiles
+        tabIdx = nav.filter { it.isTab }.indexOfFirst { it.tile.key == selected }.coerceAtLeast(0)
+        navIdx = tabIdx
     }
 
     /** Preview art for an app: what you watched there, else the head of its catalog. */
