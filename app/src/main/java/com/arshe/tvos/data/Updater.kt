@@ -51,8 +51,9 @@ object Updater {
     }
 
     /**
-     * Installs the downloaded APK. The command is detached (nohup) because installing
-     * replaces this very process; it then recompiles and brings the launcher back.
+     * Installs the downloaded APK. Installing replaces this very process, so the work runs
+     * in its own session (setsid -d) that outlives our ADB connection; the outer shell waits
+     * a moment so adbd can't tear the child down while it is still being forked.
      */
     suspend fun install(context: Context) {
         val f = apk(context).takeIf { it.exists() } ?: return
@@ -60,11 +61,9 @@ object Updater {
         val pkg = context.packageName
         // system_server may not read /sdcard (SELinux), so stage the APK in /data/local/tmp first.
         val tmp = "/data/local/tmp/tvos-update.apk"
-        LocalAdb.shell(
-            context,
-            "nohup sh -c 'cp \"${f.absolutePath}\" $tmp && pm install -r $tmp && cmd package compile -m speed -f $pkg; " +
-                "rm -f $tmp \"${f.absolutePath}\"; am start -a android.intent.action.MAIN -c android.intent.category.HOME' >/dev/null 2>&1 &",
-        )
+        val script = "cp \"${f.absolutePath}\" $tmp && pm install -r $tmp && cmd package compile -m speed -f $pkg; " +
+            "rm -f $tmp \"${f.absolutePath}\"; am start -a android.intent.action.MAIN -c android.intent.category.HOME"
+        LocalAdb.shell(context, "setsid -d sh -c '$script' </dev/null >/data/local/tmp/tvos-update.log 2>&1; sleep 1")
     }
 
     // Shell (which runs pm install) can read app-specific external storage, not our private dir.
