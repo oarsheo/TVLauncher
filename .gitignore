@@ -1,0 +1,13 @@
+.gradle/
+build/
+local.properties
+.idea/
+*.iml
+.DS_Store
+reports/
+.kotlin/
+
+# Personal / local
+*.JPG
+index.js
+package.json
