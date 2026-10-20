@@ -11,6 +11,17 @@ for a in "$@"; do
 done
 A=(adb -s "$IP:5555")
 
+# DO NOT REMOVE on Philips (learned the hard way / cross-checked with github.com/Gathin23/cleanyourtv):
+#   org.droidtv.eum               persistent xtv binds its EUMService; without it xtv retries ~5x/s
+#                                 and the SOURCES drawer closes right after opening
+#   org.droidtv.nettvregistration xtvsystem crash-loops without its provider (screen flickers)
+#   org.droidtv.fastip            channel installation calls it
+#   org.droidtv.calmancalibrator, org.droidtv.sunrise   part of the calibration / tuner set on TPM211
+#   org.droidtv.xtv, xtvsystem, playtv, channels, ipcontrol (JointSpace API), ambi*, GlobalKey,
+#   homeintentresolver, tvsystemui, hidwizard (remote pairing), virginsetup (first-run setup)
+# Google TV: before disabling setupwraith check `dumpsys wifi | grep -o 'cname=[^ ]*'` — if the
+# saved network isn't android.uid.system, Android deletes it with setupwraith.
+
 # Tier 1: safe, nothing depends on them
 TIER1=(
   com.google.android.play.games
@@ -26,15 +37,14 @@ TIER1=(
   io.mimi.sdk.service                # Mimi hearing personalization
   io.mimi.tvapp
   org.droidtv.candeebug              # Philips debug logger, ~27 MB resident
+  org.droidtv.gel                    # metrics collector that runs with candeebug
   org.droidtv.usagelogger
   org.droidtv.tv.frameworklogger
   org.droidtv.demome                 # shop demo mode
-  org.droidtv.calmancalibrator
   org.droidtv.android.fitness
   org.droidtv.amazonalexa
   org.droidtv.astrahdplus            # German satellite operator
   org.droidtv.m7opapp                # M7 satellite operator
-  org.droidtv.sunrise                # Swiss operator
   org.droidtv.freeviewplayers        # UK Freeview
   uk.co.freeview.amc_catchup uk.co.freeview.amc_horror uk.co.freeview.bbc
   uk.co.freeview.bbc_sounds uk.co.freeview.ch4_vod uk.co.freeview.ch5
@@ -55,9 +65,16 @@ TIER2_PKGS=(
   org.droidtv.nettv.market           # Philips App Gallery
   org.droidtv.nettvapps
   org.droidtv.nettv_launcherapp
-  org.droidtv.eum                    # built-in e-manual
   org.droidtv.dropboxprovider
   com.google.android.apps.mediashell # Chromecast built-in (skip if you cast from a phone)
+  # Google TV / Android 14
+  tv.samba.ssm                       # Samba TV: automatic content recognition (ad tracking)
+  com.android.adservices.api
+  com.android.ondevicepersonalization.services
+  com.android.federatedcompute.services
+  com.android.tv.feedbackconsent
+  com.android.healthconnect.controller
+  com.android.health.connect.backuprestore
 )
 
 PKGS=("${TIER1[@]}")
