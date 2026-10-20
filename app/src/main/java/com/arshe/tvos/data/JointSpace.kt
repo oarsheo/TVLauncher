@@ -2,7 +2,6 @@ package com.arshe.tvos.data
 
 import android.annotation.SuppressLint
 import android.util.Log
-import com.arshe.tvos.BuildConfig
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.withContext
@@ -48,7 +47,7 @@ object JointSpace {
     private const val NODE_AMBI_BRIGHTNESS = 2130968780
     private const val NODE_SLEEP = 2130968712
 
-    val configured: Boolean get() = BuildConfig.JOINTSPACE_USER.isNotBlank()
+    val configured: Boolean get() = Secrets.jointspaceUser.isNotBlank()
 
     suspend fun state(): AmbiState? = withContext(Dispatchers.IO) {
         runCatching {
@@ -142,8 +141,8 @@ object JointSpace {
         val realm = p["realm"].orEmpty()
         val nonce = p["nonce"].orEmpty()
         val qop = p["qop"]?.split(',')?.firstOrNull()?.trim()
-        val user = BuildConfig.JOINTSPACE_USER
-        val ha1 = md5("$user:$realm:${BuildConfig.JOINTSPACE_PASS}")
+        val user = Secrets.jointspaceUser
+        val ha1 = md5("$user:$realm:${Secrets.jointspacePass}")
         val ha2 = md5("$method:$uri")
         val cnonce = md5(System.nanoTime().toString()).take(16)
         val nc = "%08x".format(nc.incrementAndGet())

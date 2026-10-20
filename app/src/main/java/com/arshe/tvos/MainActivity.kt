@@ -25,6 +25,7 @@ import com.arshe.tvos.data.PKG_NETFLIX
 import com.arshe.tvos.data.PKG_YOUTUBE
 import com.arshe.tvos.data.Lookup
 import com.arshe.tvos.data.SaverStore
+import com.arshe.tvos.data.Secrets
 import com.arshe.tvos.data.YouTubeSource
 import com.arshe.tvos.ui.LauncherRoot
 import com.arshe.tvos.ui.isHomeIntent
@@ -45,6 +46,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        Secrets.load(this)
         apps = AppsRepository(this)
         watchNext = WatchNextRepository(this) { launcher.tiles }
         sources = SourcesRepository(this)

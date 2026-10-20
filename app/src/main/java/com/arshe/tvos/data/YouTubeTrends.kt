@@ -4,7 +4,6 @@ import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import android.util.Log
-import com.arshe.tvos.BuildConfig
 import com.arshe.tvos.ui.Arts
 import org.json.JSONObject
 import java.io.File
@@ -17,7 +16,7 @@ const val PKG_YOUTUBE = "com.google.android.youtube.tv"
 /** "Most popular" chart from the YouTube Data API, cached on disk for a few hours. */
 class YouTubeTrends(private val context: Context) {
     fun load(region: String = "UA", category: String? = null): List<HeroItem> {
-        val key = BuildConfig.YOUTUBE_API_KEY
+        val key = Secrets.youtubeKey
         if (key.isBlank()) return emptyList()
         val cache = File(context.cacheDir, "yt_trends_${category ?: "all"}.json")
         val fresh = cache.exists() && System.currentTimeMillis() - cache.lastModified() < TTL_MS

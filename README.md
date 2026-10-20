@@ -15,16 +15,19 @@ Kotlin + Jetpack Compose, laid out on a fixed 1920×1080 canvas.
 - **All apps** grid (hold OK to reorder), **inputs** (HDMI via `TvInputManager`).
 - **Quick settings** (Menu key): Ambilight on/off, mode, brightness, sleep timer, standby — through the TV's
   JointSpace API on `127.0.0.1:1926` (pair once with `scripts/philips-pair.py`, put the printed
-  `jointspace.user` / `jointspace.pass` into `local.properties`).
+  `jointspace.user` / `jointspace.pass` into `local.properties` and run `scripts/push-secrets.sh`).
 - **Screensaver** (`TvosDream`): Aerial-style catalog backdrops with a drifting clock; OK opens the title.
 
 ### Build & install
 
 ```sh
-echo "youtube.apiKey=<YOUR_KEY>" >> local.properties   # optional, enables YouTube rows
 ./gradlew :app:assembleRelease
 adb install -r app/build/outputs/apk/release/app-release.apk
 adb shell cmd package compile -m speed -f com.arshe.tvos
+
+# per-TV secrets stay on the TV, never in the APK: put youtube.apiKey / jointspace.user /
+# jointspace.pass into local.properties, then
+scripts/push-secrets.sh <tv-ip>
 
 # media sessions → "Continue watching"
 adb shell cmd notification allow_listener com.arshe.tvos/com.arshe.tvos.data.NowPlayingListener
@@ -44,8 +47,8 @@ adb shell settings put system screen_off_timeout 600000
 The launcher checks `github.com/<update.repo>` releases (tag `v<versionCode>`, `.apk` asset) at
 start and every 6 hours, downloads newer builds and installs them through its local ADB link
 while another app is on screen, then AOT-compiles itself. Publish with `scripts/release.sh "notes"`
-(needs `gh auth login`). For a private repo put a read-only fine-grained token into
-`local.properties` as `github.token`.
+(needs `gh auth login`). Release APKs contain no secrets. For a private repo put a read-only
+fine-grained token into `local.properties` as `github.token`.
 
 ## Scripts
 

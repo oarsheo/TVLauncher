@@ -19,13 +19,9 @@ android {
         targetSdk = 34
         versionCode = 4
         versionName = "0.4"
-        buildConfigField("String", "YOUTUBE_API_KEY", "\"${localProps.getProperty("youtube.apiKey", "")}\"")
-        // Credentials from scripts/philips-pair.py; enable Ambilight / sleep timer / standby.
-        buildConfigField("String", "JOINTSPACE_USER", "\"${localProps.getProperty("jointspace.user", "")}\"")
         // OTA updates: GitHub repo with releases tagged v<versionCode>; token only needed for a private repo.
         buildConfigField("String", "UPDATE_REPO", "\"${localProps.getProperty("update.repo", "oarsheo/TVLauncher")}\"")
         buildConfigField("String", "UPDATE_TOKEN", "\"${localProps.getProperty("github.token", "")}\"")
-        buildConfigField("String", "JOINTSPACE_PASS", "\"${localProps.getProperty("jointspace.pass", "")}\"")
     }
 
     buildTypes {

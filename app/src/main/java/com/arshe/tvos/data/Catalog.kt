@@ -5,7 +5,6 @@ import android.content.Intent
 import android.net.Uri
 import android.text.Html
 import android.util.Log
-import com.arshe.tvos.BuildConfig
 import com.arshe.tvos.ui.Art
 import org.json.JSONArray
 import org.json.JSONObject
@@ -197,7 +196,7 @@ class YouTubeSource(private val context: Context) {
     private val trends = YouTubeTrends(context)
 
     fun rows(): List<ContentRow> {
-        if (BuildConfig.YOUTUBE_API_KEY.isBlank()) return emptyList()
+        if (Secrets.youtubeKey.isBlank()) return emptyList()
         return listOfNotNull(
             trends.load().takeIf { it.isNotEmpty() }?.let { ContentRow("В тренде", it) },
             trends.load(category = "10").takeIf { it.isNotEmpty() }?.let { ContentRow("Музыка", it) },
