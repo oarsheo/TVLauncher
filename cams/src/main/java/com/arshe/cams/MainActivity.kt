@@ -84,6 +84,7 @@ class Wall(val prefs: Prefs) {
     var weather by mutableStateOf<Weather?>(null)
     var weatherAt = 0L
     var power by mutableStateOf<Power?>(null)
+    var hoursLeft by mutableStateOf<Float?>(null) // on battery at the recent draw
     var dim by mutableStateOf(false)
     var keyAt = 0L                                  // last real key press
     val alarms = mutableStateMapOf<String, Long>()  // camera id -> last person seen
@@ -127,7 +128,7 @@ class MainActivity : ComponentActivity() {
                 LaunchedEffect(Unit) { load() }
                 LaunchedEffect(wall.nvr) { wall.nvr?.let { weather(it) } }
                 LaunchedEffect(wall.nvr) { wall.nvr?.let { watch(it) } }
-                LaunchedEffect(wall.nvr) { wall.nvr?.deye?.let { (host, sn) -> power(Deye(host, sn)) } }
+                LaunchedEffect(wall.nvr) { wall.nvr?.let { n -> n.deye?.let { (host, sn) -> power(Deye(host, sn), n.batteryKwh, n.batteryReserve) } } }
             })
         })
     }
@@ -249,7 +250,8 @@ class MainActivity : ComponentActivity() {
     }
 
     /** Polls the inverter; says when the grid goes or comes back and when the battery runs low without it. */
-    private suspend fun power(deye: Deye) {
+    private suspend fun power(deye: Deye, kwh: Double, reserve: Int) {
+        var draw = 0.0 // W the battery gives, averaged over a few minutes so a kettle doesn't swing it
         var grid: Boolean? = null
         var pending: Boolean? = null
         var warned = 101
@@ -260,6 +262,9 @@ class MainActivity : ComponentActivity() {
             if (p != null) {
                 wall.power = p
                 okAt = now
+                draw = if (draw == 0.0) p.battery.toDouble() else draw * .95 + p.battery * .05
+                wall.hoursLeft = if (kwh > 0 && draw > 100 && p.battery > 50)
+                    (kwh * 1000 * (p.soc - reserve).coerceAtLeast(0) / 100 / draw).toFloat() else null
                 // A change counts once two readings in a row agree.
                 if (p.grid != grid && p.grid == pending) {
                     if (grid != null) {
@@ -272,7 +277,7 @@ class MainActivity : ComponentActivity() {
                 }
                 pending = p.grid
                 if (grid == false) {
-                    val step = listOf(50, 30, 20, 10).firstOrNull { p.soc <= it && warned > it }
+                    val step = listOf(50, 40, 30, reserve + 5).firstOrNull { p.soc <= it && warned > it }
                     if (step != null) announce("Батарея $step процентов")
                 }
                 if (grid == false) warned = minOf(warned, p.soc)
@@ -500,7 +505,7 @@ private fun Info(w: Wall, modifier: Modifier, wide: Boolean) {
             Box(Modifier.weight(1f))
             Column(horizontalAlignment = Alignment.End) {
                 weather?.let { WeatherBlock(it) }
-                power?.let { PowerLine(it, Modifier.padding(top = 14.dp)) }
+                power?.let { PowerLine(it, w.hoursLeft, Modifier.padding(top = 14.dp)) }
             }
         }
     }
@@ -524,7 +529,7 @@ private fun WeatherBlock(x: Weather) {
 
 /** Grid, battery, house and solar in one line: `● Сеть  🔋 87% ↑0,4 (↑ gives, ↓ charges)  🏠 1,1 кВт  ☀️ 2,3`. */
 @Composable
-private fun PowerLine(p: Power, modifier: Modifier) {
+private fun PowerLine(p: Power, hours: Float?, modifier: Modifier) {
     Row(modifier, verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(22.dp)) {
         BasicText(
             if (p.grid) "Сеть ${p.gridVolts} В" else "Нет света",
@@ -537,9 +542,16 @@ private fun PowerLine(p: Power, modifier: Modifier) {
             else -> ""
         }
         BasicText("🔋 ${p.soc}%$flow", style = text(28, 800, if (p.soc <= 20) Red else Color.White))
+        hours?.let { BasicText("≈ ${left(it)}", style = text(28, 800, if (it < 3) Red else Color.White.copy(.75f))) }
         BasicText("🏠 ${kw(p.load)} кВт", style = text(28, 800))
         if (p.pv > 50) BasicText("☀️ ${kw(p.pv)}", style = text(28, 800, Amber))
     }
+}
+
+private fun left(h: Float) = when {
+    h < 1 -> "${(h * 60).toInt()} мин"
+    h < 100 -> "${h.toInt()} ч"
+    else -> "${(h / 24).toInt()} сут"
 }
 
 private fun kw(w: Int) = String.format(Locale("ru"), "%.1f", w / 1000f)

@@ -28,6 +28,8 @@ data class Camera(val id: String, val name: String, val main: String, val sub: S
  *   voice=ru-ru-x-rud-local                 (TTS voice for announcements, optional)
  *   home=true                               (be the box's home screen; only on a cameras-only box)
  *   deye=192.168.50.213:2984389868          (inverter's Wi-Fi logger ip:serial, optional)
+ *   deye.kwh=120  deye.reserve=20           (battery capacity and the % where the inverter cuts off,
+ *                                            for the time left on battery)
  */
 data class Nvr(
     val host: String,
@@ -43,6 +45,8 @@ data class Nvr(
     val voice: String?,
     val home: Boolean,
     val deye: Pair<String, Long>?,
+    val batteryKwh: Double,
+    val batteryReserve: Int,
 ) {
     companion object {
         fun load(context: Context): Nvr? {
@@ -67,6 +71,8 @@ data class Nvr(
                 p.getProperty("voice")?.trim()?.takeIf { it.isNotEmpty() },
                 p.getProperty("home", "false").toBoolean(),
                 p.getProperty("deye")?.split(':')?.takeIf { it.size == 2 }?.let { (ip, sn) -> sn.trim().toLongOrNull()?.let { ip.trim() to it } },
+                p.getProperty("deye.kwh")?.toDoubleOrNull() ?: 0.0,
+                p.getProperty("deye.reserve")?.toIntOrNull() ?: 20,
             )
         }
     }
