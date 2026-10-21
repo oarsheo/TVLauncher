@@ -142,6 +142,7 @@ class MainActivity : ComponentActivity() {
         }
         wall.cams = withContext(Dispatchers.IO) { CameraCache.load(this@MainActivity) }
         wall.prefs.seed(nvr)
+        homeRole(nvr.home)
         wall.nvr = nvr
         while (true) {
             val fresh = withContext(Dispatchers.IO) { runCatching { Onvif.cameras(nvr) } }
@@ -155,6 +156,15 @@ class MainActivity : ComponentActivity() {
             }
             if (wall.cams.isEmpty()) wall.problem = "NVR ${nvr.host} не отвечает\n${fresh.exceptionOrNull()?.message ?: "камер нет"}"
             delay(10_000)
+        }
+    }
+
+    private fun homeRole(on: Boolean) {
+        val alias = android.content.ComponentName(this, "$packageName.Home")
+        val state = if (on) android.content.pm.PackageManager.COMPONENT_ENABLED_STATE_ENABLED
+        else android.content.pm.PackageManager.COMPONENT_ENABLED_STATE_DISABLED
+        if (packageManager.getComponentEnabledSetting(alias) != state) {
+            packageManager.setComponentEnabledSetting(alias, state, android.content.pm.PackageManager.DONT_KILL_APP)
         }
     }
 

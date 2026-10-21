@@ -26,6 +26,7 @@ data class Camera(val id: String, val name: String, val main: String, val sub: S
  *   alarm=Главный вход:Человек у главного входа; Гараж:Человек у гаража
  *                                           (cameras that announce a person, UTF-8)
  *   voice=ru-ru-x-rud-local                 (TTS voice for announcements, optional)
+ *   home=true                               (be the box's home screen; only on a cameras-only box)
  */
 data class Nvr(
     val host: String,
@@ -39,6 +40,7 @@ data class Nvr(
     val nightTo: Int,
     val alarms: Map<String, String>,
     val voice: String?,
+    val home: Boolean,
 ) {
     companion object {
         fun load(context: Context): Nvr? {
@@ -61,6 +63,7 @@ data class Nvr(
                     cam.trim().takeIf { it.isNotEmpty() }?.let { it to phrase.trim() }
                 }.toMap(),
                 p.getProperty("voice")?.trim()?.takeIf { it.isNotEmpty() },
+                p.getProperty("home", "false").toBoolean(),
             )
         }
     }
