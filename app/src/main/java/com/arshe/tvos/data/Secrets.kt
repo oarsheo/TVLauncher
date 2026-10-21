@@ -20,4 +20,10 @@ object Secrets {
     val youtubeKey: String get() = props.getProperty("youtube.apiKey", "")
     val jointspaceUser: String get() = props.getProperty("jointspace.user", "")
     val jointspacePass: String get() = props.getProperty("jointspace.pass", "")
+
+    /** House inverter's Wi-Fi logger (ip:serial), battery kWh and the % where it cuts off. */
+    val deye: Pair<String, Long>? get() = props.getProperty("deye")?.split(':')?.takeIf { it.size == 2 }
+        ?.let { (ip, sn) -> sn.trim().toLongOrNull()?.let { ip.trim() to it } }
+    val batteryKwh: Double get() = props.getProperty("deye.kwh")?.toDoubleOrNull() ?: 0.0
+    val batteryReserve: Int get() = props.getProperty("deye.reserve")?.toIntOrNull() ?: 20
 }

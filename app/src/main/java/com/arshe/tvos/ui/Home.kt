@@ -154,6 +154,7 @@ fun HomeScreen(l: Launcher, time: String, vpn: Boolean) {
         // Top bar fades over the billboard.
         Box(Modifier.fillMaxWidth().height(170.dp).background(Brush.verticalGradient(0f to Color.Black.copy(.75f), 1f to Color.Transparent)))
         TopBar(l, time, vpn)
+        HouseLine(Modifier.align(Alignment.TopEnd).padding(top = 112.dp, end = X.dp))
         }
     }
 }
@@ -186,6 +187,44 @@ private fun TopBar(l: Launcher, time: String, vpn: Boolean) {
         BasicText(time, style = jText(28, 700, Color.White.copy(.9f)))
     }
 }
+
+/** Under the clock: grid, battery and house load from the inverter, quiet unless the grid is out. */
+@Composable
+private fun HouseLine(modifier: Modifier) {
+    val house by com.arshe.tvos.data.rememberHouse()
+    val h = house ?: return
+    val p = h.power
+    val dim = Color.White.copy(.6f)
+    Row(modifier, verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(18.dp)) {
+        if (p.grid) {
+            Box(Modifier.size(9.dp).clip(CircleShape).background(J.On))
+            BasicText("Сеть", style = jText(22, 700, dim))
+        } else {
+            BasicText(
+                "Нет света",
+                Modifier.clip(RoundedCornerShape(8.dp)).background(Color(0xFFFF453A)).padding(horizontal = 10.dp, vertical = 1.dp),
+                style = jText(22, 800, Color.White),
+            )
+        }
+        val flow = when {
+            p.battery > 50 -> " ↑${kw(p.battery)}"
+            p.battery < -50 -> " ↓${kw(-p.battery)}"
+            else -> ""
+        }
+        BasicText("🔋 ${p.soc}%$flow", style = jText(22, 700, if (p.soc <= 30) Color(0xFFFF453A) else Color.White.copy(.85f)))
+        h.hoursLeft?.let { BasicText("≈ ${hoursText(it)}", style = jText(22, 700, dim)) }
+        BasicText("🏠 ${kw(p.load)} кВт", style = jText(22, 700, dim))
+        if (p.pv > 50) BasicText("☀️ ${kw(p.pv)}", style = jText(22, 700, Color(0xFFFFC53D)))
+    }
+}
+
+private fun hoursText(h: Float) = when {
+    h < 1 -> "${(h * 60).toInt()} мин"
+    h < 100 -> "${h.toInt()} ч"
+    else -> "${(h / 24).toInt()} сут"
+}
+
+private fun kw(w: Int) = String.format(java.util.Locale("ru"), "%.1f", w / 1000f)
 
 /**
  * Top-bar entry. Content apps show their real icon and name; shortcuts are icon-only and
