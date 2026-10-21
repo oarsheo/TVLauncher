@@ -21,6 +21,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateListOf
+import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -42,6 +43,12 @@ class Prefs(context: Context) {
     var autoOpen by mutableStateOf(sp.getBoolean("autoOpen", true))
     val alarmCams = mutableStateListOf<String>().apply { addAll(sp.getStringSet("alarmCams", emptySet())!!) }
 
+    /** Per camera: ignore people whose feet are in the top N % of the frame (a road in view). */
+    val ignoreTop = mutableStateMapOf<String, Int>().apply {
+        val saved = sp.getString("ignoreTop", null) ?: "Главный вход=30" // the street shows above the porch
+        saved.split(';').forEach { e -> e.split('=').takeIf { it.size == 2 }?.let { put(it[0], it[1].toIntOrNull() ?: 0) } }
+    }
+
     fun seed(nvr: Nvr) {
         if (sp.getBoolean("seeded", false)) return
         nvr.voice?.let { voice = it }
@@ -62,6 +69,7 @@ class Prefs(context: Context) {
             .putBoolean("nightGuard", nightGuard)
             .putBoolean("autoOpen", autoOpen)
             .putStringSet("alarmCams", alarmCams.toSet())
+            .putString("ignoreTop", ignoreTop.entries.joinToString(";") { "${it.key}=${it.value}" })
             .apply()
     }
 
@@ -114,6 +122,7 @@ class SettingsScreen(private val prefs: Prefs, private val cams: () -> List<Came
                     }
                     Item.From -> prefs.nightFrom = (prefs.nightFrom + d + 24) % 24
                     Item.To -> prefs.nightTo = (prefs.nightTo + d + 24) % 24
+                    is Item.Cam -> prefs.ignoreTop[it.name] = ((prefs.ignoreTop[it.name] ?: 0) + d * 10).coerceIn(0, 70)
                     else -> toggle(it, listen, test)
                 }
                 prefs.save()
@@ -170,7 +179,8 @@ fun SettingsSheet(s: SettingsScreen, prefs: Prefs) {
                         SettingsScreen.Item.Dim -> "Затемнять экран ночью" to onOff(prefs.dimAtNight)
                         SettingsScreen.Item.Guard -> "Ночная охрана: все камеры" to onOff(prefs.nightGuard)
                         SettingsScreen.Item.AutoOpen -> "Открывать камеру при тревоге" to onOff(prefs.autoOpen)
-                        is SettingsScreen.Item.Cam -> item.name to onOff(item.name in prefs.alarmCams)
+                        is SettingsScreen.Item.Cam -> item.name to (onOff(item.name in prefs.alarmCams) +
+                            ((prefs.ignoreTop[item.name] ?: 0).takeIf { it > 0 }?.let { "  ·  без верха $it%" } ?: ""))
                         SettingsScreen.Item.Test -> "Проверить тревогу" to "OK"
                     }
                     if (item is SettingsScreen.Item.Cam && items.getOrNull(i - 1) !is SettingsScreen.Item.Cam) {
@@ -181,7 +191,7 @@ fun SettingsSheet(s: SettingsScreen, prefs: Prefs) {
             }
         }
         BasicText(
-            "↑ ↓ выбор  ·  ← → изменить  ·  OK — вкл/выкл, прослушать  ·  Назад — закрыть",
+            "↑ ↓ выбор  ·  ← → изменить (у камер — зона сверху без тревоги)  ·  OK — вкл/выкл  ·  Назад — закрыть",
             Modifier.align(Alignment.BottomStart).padding(start = 56.dp, bottom = 40.dp),
             style = text(20, 600, Color.White.copy(.4f)),
         )
@@ -200,7 +210,11 @@ private fun SettingRow(label: String, value: String, on: Boolean) {
         verticalAlignment = Alignment.CenterVertically,
     ) {
         BasicText(label, Modifier.weight(1f), style = text(28, 700, ink))
-        val accent = when (value) { "Вкл" -> if (on) Color(0xFF1E8E3E) else Green; "Выкл" -> ink.copy(.45f); else -> ink.copy(.8f) }
+        val accent = when {
+            value.startsWith("Вкл") -> if (on) Color(0xFF1E8E3E) else Green
+            value.startsWith("Выкл") -> ink.copy(.45f)
+            else -> ink.copy(.8f)
+        }
         BasicText(value, style = text(26, 800, accent))
     }
 }

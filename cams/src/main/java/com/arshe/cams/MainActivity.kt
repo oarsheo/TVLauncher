@@ -171,17 +171,18 @@ class MainActivity : ComponentActivity() {
     /** Person alarms on the cameras chosen in settings (all of them at night in guard mode). */
     private fun watch(nvr: Nvr) {
         voice = Announcer(this, wall.prefs.voice)
-        events = Events(nvr) { source, confidence ->
-            if (confidence >= 60) main.post { person(nvr, source) }
+        events = Events(nvr) { source, confidence, feet ->
+            if (confidence >= 60) main.post { person(nvr, source, feet) }
         }.also { it.start() }
     }
 
-    private fun person(nvr: Nvr, source: String) {
+    private fun person(nvr: Nvr, source: String, feet: Float = 1f) {
         val w = wall
         val i = w.cams.indexOfFirst { it.id == source }
         if (i < 0) return
         val cam = w.cams[i]
         if (!w.prefs.alarmOn(cam)) return
+        if (feet * 100 < (w.prefs.ignoreTop[cam.name] ?: 0)) return // up on the road, not at the door
         val phrase = nvr.alarms[cam.name] ?: "Человек у камеры ${cam.name}"
         val now = System.currentTimeMillis()
         w.alarms[cam.id] = now

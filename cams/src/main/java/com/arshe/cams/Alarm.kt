@@ -10,9 +10,10 @@ import java.util.Locale
 /**
  * NVR analytics over ONVIF events (PullPoint). Ajax reports its detections as
  * tns1:RuleEngine/tnsajax:ObjectDetector/Detection with <ajax:Object class="person" confidence="91" …/>
- * per video source; [onPerson] fires for every such sighting.
+ * per video source; [onPerson] fires for every such sighting with where the person's feet are
+ * (bbox is "x y w h" in frame fractions, y from the top, so feet = y + h).
  */
-class Events(private val nvr: Nvr, private val onPerson: (source: String, confidence: Int) -> Unit) {
+class Events(private val nvr: Nvr, private val onPerson: (source: String, confidence: Int, feet: Float) -> Unit) {
     @Volatile private var running = false
     private var thread: Thread? = null
 
@@ -51,7 +52,10 @@ class Events(private val nvr: Nvr, private val onPerson: (source: String, confid
             val source = SOURCE.find(msg)?.groupValues?.get(1) ?: continue
             for (o in OBJECT.findAll(msg)) {
                 val attrs = ATTR.findAll(o.value).associate { it.groupValues[1] to it.groupValues[2] }
-                if (attrs["class"] == "person") onPerson(source, attrs["confidence"]?.toIntOrNull() ?: 0)
+                if (attrs["class"] != "person") continue
+                val box = attrs["bbox"]?.split(' ')?.mapNotNull { it.toFloatOrNull() }
+                val feet = if (box != null && box.size == 4) box[1] + box[3] else 1f
+                onPerson(source, attrs["confidence"]?.toIntOrNull() ?: 0, feet)
             }
         }
     }
