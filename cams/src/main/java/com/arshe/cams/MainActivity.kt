@@ -248,8 +248,8 @@ class MainActivity : ComponentActivity() {
                 return true
             }
             KeyEvent.KEYCODE_BACK -> {
-                if (full == null) return super.dispatchKeyEvent(e)
-                if (!down) w.full = null
+                // The wall is a kiosk: Back never closes it (Home still leaves).
+                if (!down) { if (full != null) w.full = null else w.focus = 0 }
                 return true
             }
             KeyEvent.KEYCODE_DPAD_CENTER, KeyEvent.KEYCODE_ENTER, KeyEvent.KEYCODE_NUMPAD_ENTER -> {
