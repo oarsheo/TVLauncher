@@ -63,18 +63,18 @@ import java.util.Locale
 import kotlin.math.ceil
 import kotlin.math.sqrt
 
-private val Green = Color(0xFF34C759)
-private val Amber = Color(0xFFFFB020)
-private val Red = Color(0xFFFF453A)
+internal val Green = Color(0xFF34C759)
+internal val Amber = Color(0xFFFFB020)
+internal val Red = Color(0xFFFF453A)
 
 private fun manrope(weight: Int) = Font(R.font.manrope, weight = FontWeight(weight), variationSettings = FontVariation.Settings(FontVariation.weight(weight)))
 private val Manrope = FontFamily(manrope(500), manrope(600), manrope(700), manrope(800))
 
-private fun text(size: Int, weight: Int, color: Color = Color.White) =
+internal fun text(size: Int, weight: Int, color: Color = Color.White) =
     TextStyle(color = color, fontSize = size.sp, fontWeight = FontWeight(weight), fontFamily = Manrope, letterSpacing = (-0.01).em, fontFeatureSettings = "tnum")
 
 /** Screen state: the camera wall, which tile has focus and which camera (if any) is fullscreen. */
-class Wall {
+class Wall(val prefs: Prefs) {
     var nvr by mutableStateOf<Nvr?>(null)
     var cams by mutableStateOf(emptyList<Camera>())
     var problem by mutableStateOf<String?>(null)
@@ -103,7 +103,8 @@ class Wall {
 }
 
 class MainActivity : ComponentActivity() {
-    private val wall = Wall()
+    private val wall by lazy { Wall(Prefs(this)) }
+    private val settings by lazy { SettingsScreen(wall.prefs, { wall.cams }, { voice?.voices.orEmpty() }) }
     private var events: Events? = null
     private var voice: Announcer? = null
     private val spoken = HashMap<String, Long>()
@@ -117,6 +118,7 @@ class MainActivity : ComponentActivity() {
             addView(canvas { Videos(wall) })
             addView(canvas {
                 Overlay(wall)
+                if (settings.open) SettingsSheet(settings, wall.prefs)
                 LaunchedEffect(Unit) { load() }
                 LaunchedEffect(wall.nvr) { wall.nvr?.let { weather(it) } }
                 LaunchedEffect(wall.nvr) { wall.nvr?.let { watch(it) } }
@@ -139,6 +141,7 @@ class MainActivity : ComponentActivity() {
             return
         }
         wall.cams = withContext(Dispatchers.IO) { CameraCache.load(this@MainActivity) }
+        wall.prefs.seed(nvr)
         wall.nvr = nvr
         while (true) {
             val fresh = withContext(Dispatchers.IO) { runCatching { Onvif.cameras(nvr) } }
@@ -155,10 +158,9 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    /** Person alarms on the cameras listed in nvr.alarm: voice, red tile, camera fullscreen. */
+    /** Person alarms on the cameras chosen in settings (all of them at night in guard mode). */
     private fun watch(nvr: Nvr) {
-        if (nvr.alarms.isEmpty()) return
-        voice = Announcer(this)
+        voice = Announcer(this, wall.prefs.voice)
         events = Events(nvr) { source, confidence ->
             if (confidence >= 60) main.post { person(nvr, source) }
         }.also { it.start() }
@@ -169,30 +171,43 @@ class MainActivity : ComponentActivity() {
         val i = w.cams.indexOfFirst { it.id == source }
         if (i < 0) return
         val cam = w.cams[i]
-        val phrase = nvr.alarms[cam.name] ?: return
+        if (!w.prefs.alarmOn(cam)) return
+        val phrase = nvr.alarms[cam.name] ?: "Человек у камеры ${cam.name}"
         val now = System.currentTimeMillis()
         w.alarms[cam.id] = now
         w.lastEvent = "Человек · ${cam.name} · ${SimpleDateFormat("HH:mm", Locale.getDefault()).format(Date(now))}"
         w.lastInput = now // wakes the wall from night dimming
         if (now - (spoken[cam.id] ?: 0L) > 60_000) {
             spoken[cam.id] = now
-            voice?.say(phrase)
+            voice?.say(phrase, w.prefs.voice)
         }
         // Show the camera unless someone is busy with the remote.
-        if (w.full != i && now - w.keyAt > 30_000) {
+        if (w.prefs.autoOpen && !settings.open && w.full != i && now - w.keyAt > 30_000) {
             w.full = i
             w.focus = i
             w.autoFull = true
         }
     }
 
-    // Test hook: adb shell am start -n com.arshe.cams/.MainActivity --es alarm "Главный вход"
+    // Test hooks: adb shell am start -n com.arshe.cams/.MainActivity --es alarm "Главный вход"
+    //             … --es say "текст" [--es voice ru-ru-x-rud-local]
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
-        val name = intent.getStringExtra("alarm") ?: return
         val nvr = wall.nvr ?: return
-        if (voice == null) voice = Announcer(this)
-        wall.cams.firstOrNull { it.name == name }?.let { person(nvr, it.id) }
+        if (voice == null) voice = Announcer(this, wall.prefs.voice)
+        intent.getStringExtra("say")?.let { voice?.say(it, intent.getStringExtra("voice")); return }
+        val name = intent.getStringExtra("alarm") ?: return
+        wall.cams.firstOrNull { it.name == name }?.let { test(nvr, it) }
+    }
+
+    /** A sample alarm that ignores the camera's on/off switch. */
+    private fun test(nvr: Nvr, cam: Camera) {
+        val added = cam.name !in wall.prefs.alarmCams
+        if (added) wall.prefs.alarmCams.add(cam.name)
+        spoken.remove(cam.id)
+        wall.keyAt = 0L
+        person(nvr, cam.id)
+        if (added) wall.prefs.alarmCams.remove(cam.name)
     }
 
     override fun onDestroy() {
@@ -221,22 +236,34 @@ class MainActivity : ComponentActivity() {
             w.keyAt = w.lastInput
             w.autoFull = false
         }
+        if (settings.open) return settings.key(e,
+            listen = { v -> voice?.say("Человек у главного входа", v) },
+            test = { w.nvr?.let { nvr -> (w.cams.firstOrNull { w.prefs.alarmOn(it) } ?: w.cams.first()).let { test(nvr, it) } } },
+        )
         val full = w.full
+        val onSettings = full == null && w.focus == n
         when (e.keyCode) {
+            KeyEvent.KEYCODE_MENU, KeyEvent.KEYCODE_SETTINGS -> {
+                if (!down) { settings.sel = 0; settings.open = true }
+                return true
+            }
             KeyEvent.KEYCODE_BACK -> {
                 if (full == null) return super.dispatchKeyEvent(e)
                 if (!down) w.full = null
                 return true
             }
             KeyEvent.KEYCODE_DPAD_CENTER, KeyEvent.KEYCODE_ENTER, KeyEvent.KEYCODE_NUMPAD_ENTER -> {
-                if (down && e.repeatCount == 0) w.full = if (full == null) w.focus.coerceIn(0, n - 1) else null
+                if (down && e.repeatCount == 0) {
+                    if (onSettings) { settings.sel = 0; settings.open = true }
+                    else w.full = if (full == null) w.focus.coerceIn(0, n - 1) else null
+                }
                 return true
             }
             KeyEvent.KEYCODE_DPAD_LEFT, KeyEvent.KEYCODE_DPAD_RIGHT -> {
                 val d = if (e.keyCode == KeyEvent.KEYCODE_DPAD_LEFT) -1 else 1
                 if (down) {
                     if (full != null) { w.full = (full + d + n) % n; w.focus = w.full!! }
-                    else w.focus = (w.focus + d).coerceIn(0, n - 1)
+                    else w.focus = (w.focus + d).coerceIn(0, n) // n = the settings button
                 }
                 return true
             }
@@ -246,7 +273,7 @@ class MainActivity : ComponentActivity() {
                     return true
                 }
                 val d = if (e.keyCode == KeyEvent.KEYCODE_DPAD_UP) -w.cols else w.cols
-                if (down && full == null) (w.focus + d).takeIf { it in 0 until n }?.let { w.focus = it }
+                if (down && full == null) (w.focus + d).coerceAtMost(n).takeIf { it >= 0 && (it != n || w.focus + d >= n) }?.let { w.focus = it }
                 return true
             }
             in KeyEvent.KEYCODE_1..KeyEvent.KEYCODE_9 -> {
@@ -301,12 +328,10 @@ private fun Overlay(w: Wall) {
     // Night: dim everything (video included) so the monitor doesn't light up the room;
     // any key brings full brightness back for two minutes.
     val nvr = w.nvr
-    LaunchedEffect(nvr, w.lastInput) {
+    LaunchedEffect(nvr, w.lastInput, w.prefs.dimAtNight, w.prefs.nightFrom, w.prefs.nightTo) {
         if (nvr == null) return@LaunchedEffect
         while (true) {
-            val hour = java.util.Calendar.getInstance().get(java.util.Calendar.HOUR_OF_DAY)
-            val night = if (nvr.nightFrom > nvr.nightTo) hour >= nvr.nightFrom || hour < nvr.nightTo else hour in nvr.nightFrom until nvr.nightTo
-            w.dim = night && System.currentTimeMillis() - w.lastInput > 2 * 60_000L
+            w.dim = w.prefs.dimAtNight && w.prefs.isNight() && System.currentTimeMillis() - w.lastInput > 2 * 60_000L
             delay(30_000)
         }
     }
@@ -390,7 +415,19 @@ private fun Info(w: Wall, modifier: Modifier, wide: Boolean) {
                 Box(Modifier.size(14.dp).background(if (on == all) Green else Amber, CircleShape))
                 BasicText("$on из $all камер в сети", style = text(30, 700))
             }
-            BasicText("OK — на весь экран  ·  1–${all.coerceAtMost(9)} — камера", Modifier.padding(top = 6.dp), style = text(24, 600, Color.White.copy(.4f)))
+            Row(Modifier.padding(top = 8.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                val on = w.focus == all
+                BasicText(
+                    "Настройки",
+                    Modifier.background(if (on) Color.White else Color.White.copy(.1f), RoundedCornerShape(10.dp)).padding(horizontal = 16.dp, vertical = 4.dp),
+                    style = text(22, 800, if (on) Color.Black else Color.White.copy(.7f)),
+                )
+                val guard = w.prefs.nightGuard && w.prefs.isNight()
+                BasicText(
+                    if (guard) "Ночная охрана: все камеры" else "Тревога: ${w.prefs.alarmCams.size} из $all",
+                    style = text(22, 700, if (guard) Red.copy(.9f) else Color.White.copy(.4f)),
+                )
+            }
             w.lastEvent?.let { BasicText(it, Modifier.padding(top = 4.dp), style = text(24, 700, Red.copy(.85f))) }
         }
         val weather = w.weather

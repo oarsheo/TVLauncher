@@ -25,6 +25,7 @@ data class Camera(val id: String, val name: String, val main: String, val sub: S
  *   night.from=23  night.to=7               (hours the wall dims, optional)
  *   alarm=Главный вход:Человек у главного входа; Гараж:Человек у гаража
  *                                           (cameras that announce a person, UTF-8)
+ *   voice=ru-ru-x-rud-local                 (TTS voice for announcements, optional)
  */
 data class Nvr(
     val host: String,
@@ -37,6 +38,7 @@ data class Nvr(
     val nightFrom: Int,
     val nightTo: Int,
     val alarms: Map<String, String>,
+    val voice: String?,
 ) {
     companion object {
         fun load(context: Context): Nvr? {
@@ -58,6 +60,7 @@ data class Nvr(
                     val (cam, phrase) = e.split(':', limit = 2).takeIf { it.size == 2 } ?: return@mapNotNull null
                     cam.trim().takeIf { it.isNotEmpty() }?.let { it to phrase.trim() }
                 }.toMap(),
+                p.getProperty("voice")?.trim()?.takeIf { it.isNotEmpty() },
             )
         }
     }

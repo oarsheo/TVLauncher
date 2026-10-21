@@ -65,8 +65,12 @@ class Events(private val nvr: Nvr, private val onPerson: (source: String, confid
 }
 
 /** Russian announcements in a female voice from the on-device TTS (works offline once the voice is installed). */
-class Announcer(context: Context) {
+class Announcer(context: Context, private val preferred: String? = null) {
     private var ready = false
+
+    /** Offline Russian voices in a stable order ("Голос 1…N" on the settings screen). */
+    @Volatile var voices: List<String> = emptyList()
+        private set
     private val tts: TextToSpeech = TextToSpeech(context.applicationContext) { status ->
         if (status == TextToSpeech.SUCCESS) setup()
     }
@@ -76,7 +80,10 @@ class Announcer(context: Context) {
         tts.language = ru
         val voices = runCatching { tts.voices }.getOrNull().orEmpty().filter { it.locale.language == "ru" }
         voices.forEach { Log.i("Cams", "tts voice ${it.name} net=${it.isNetworkConnectionRequired} q=${it.quality}") }
-        pick(voices)?.let { tts.voice = it }
+        val order = listOf("rud", "rue", "dfc", "ruc", "ruf")
+        this.voices = voices.filter { !it.isNetworkConnectionRequired }.map { it.name }.filter { it != "ru-RU-language" }
+            .sortedBy { n -> order.indexOfFirst { n.contains("-x-$it") }.let { if (it < 0) 99 else it } }
+        (voices.firstOrNull { it.name == preferred } ?: pick(voices))?.let { tts.voice = it }
         tts.setSpeechRate(0.95f)
         ready = true
         Log.i("Cams", "tts ready: ${tts.voice?.name}")
@@ -91,8 +98,9 @@ class Announcer(context: Context) {
         return offline.firstOrNull()
     }
 
-    fun say(text: String) {
+    fun say(text: String, voiceName: String? = null) {
         if (!ready) return
+        voiceName?.let { n -> runCatching { tts.voices }.getOrNull()?.firstOrNull { it.name == n }?.let { tts.voice = it } }
         tts.speak(text, TextToSpeech.QUEUE_FLUSH, Bundle(), text)
     }
 
