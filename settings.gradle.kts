@@ -13,4 +13,4 @@ dependencyResolutionManagement {
     }
 }
 rootProject.name = "TVOS"
-include(":app")
+include(":app", ":cams")
