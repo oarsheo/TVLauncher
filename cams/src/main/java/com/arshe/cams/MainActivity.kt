@@ -83,6 +83,7 @@ class Wall(val prefs: Prefs) {
     var muted by mutableStateOf(false)
     var weather by mutableStateOf<Weather?>(null)
     var weatherAt = 0L
+    var power by mutableStateOf<Power?>(null)
     var dim by mutableStateOf(false)
     var keyAt = 0L                                  // last real key press
     val alarms = mutableStateMapOf<String, Long>()  // camera id -> last person seen
@@ -126,6 +127,7 @@ class MainActivity : ComponentActivity() {
                 LaunchedEffect(Unit) { load() }
                 LaunchedEffect(wall.nvr) { wall.nvr?.let { weather(it) } }
                 LaunchedEffect(wall.nvr) { wall.nvr?.let { watch(it) } }
+                LaunchedEffect(wall.nvr) { wall.nvr?.deye?.let { (host, sn) -> power(Deye(host, sn)) } }
             })
         })
     }
@@ -244,6 +246,48 @@ class MainActivity : ComponentActivity() {
             if (w.isFailure && System.currentTimeMillis() - wall.weatherAt > 3_600_000) wall.weather = null
             delay(if (w.isSuccess) 15 * 60_000L else 60_000L)
         }
+    }
+
+    /** Polls the inverter; says when the grid goes or comes back and when the battery runs low without it. */
+    private suspend fun power(deye: Deye) {
+        var grid: Boolean? = null
+        var pending: Boolean? = null
+        var warned = 101
+        var okAt = System.currentTimeMillis()
+        while (true) {
+            val p = withContext(Dispatchers.IO) { runCatching { deye.read() } }.getOrNull()
+            val now = System.currentTimeMillis()
+            if (p != null) {
+                wall.power = p
+                okAt = now
+                // A change counts once two readings in a row agree.
+                if (p.grid != grid && p.grid == pending) {
+                    if (grid != null) {
+                        announce(if (p.grid) "Свет появился" else "Свет пропал. Батарея ${p.soc} процентов")
+                        wall.lastEvent = (if (p.grid) "Свет появился" else "Свет пропал") +
+                            " · ${SimpleDateFormat("HH:mm", Locale.getDefault()).format(Date(now))}"
+                    }
+                    grid = p.grid
+                    warned = p.soc
+                }
+                pending = p.grid
+                if (grid == false) {
+                    val step = listOf(50, 30, 20, 10).firstOrNull { p.soc <= it && warned > it }
+                    if (step != null) announce("Батарея $step процентов")
+                }
+                if (grid == false) warned = minOf(warned, p.soc)
+            } else if (now - okAt > 2 * 60_000L) {
+                wall.power = null
+            }
+            delay(10_000)
+        }
+    }
+
+    private fun announce(text: String) {
+        wall.lastInput = System.currentTimeMillis() // wakes the wall from night dimming
+        if (!wall.prefs.powerVoice) return
+        if (voice == null) voice = Announcer(this, wall.prefs.voice)
+        voice?.say(text, wall.prefs.voice)
     }
 
     override fun dispatchKeyEvent(e: KeyEvent): Boolean {
@@ -451,9 +495,13 @@ private fun Info(w: Wall, modifier: Modifier, wide: Boolean) {
             w.lastEvent?.let { BasicText(it, Modifier.padding(top = 4.dp), style = text(24, 700, Red.copy(.85f))) }
         }
         val weather = w.weather
-        if (wide && weather != null) {
+        val power = w.power
+        if (wide && (weather != null || power != null)) {
             Box(Modifier.weight(1f))
-            WeatherBlock(weather)
+            Column(horizontalAlignment = Alignment.End) {
+                weather?.let { WeatherBlock(it) }
+                power?.let { PowerLine(it, Modifier.padding(top = 14.dp)) }
+            }
         }
     }
 }
@@ -466,14 +514,35 @@ private fun WeatherBlock(x: Weather) {
             BasicText("${signed(x.temp)}°", style = text(112, 800).copy(lineHeight = 112.sp))
         }
         BasicText(x.text, style = text(34, 600, Color.White.copy(.75f)))
-        BasicText("днём ${signed(x.max)}°  ·  ночью ${signed(x.min)}°", Modifier.padding(top = 14.dp), style = text(30, 700))
         BasicText(
-            "ощущается ${signed(x.feels)}°  ·  ветер ${x.wind} м/с  ·  осадки ${x.rain}%",
-            Modifier.padding(top = 6.dp),
-            style = text(24, 600, Color.White.copy(.4f)),
+            "днём ${signed(x.max)}°  ·  ночью ${signed(x.min)}°  ·  осадки ${x.rain}%",
+            Modifier.padding(top = 10.dp),
+            style = text(26, 700, Color.White.copy(.75f)),
         )
     }
 }
+
+/** Grid, battery, house and solar in one line: `● Сеть  🔋 87% ↑0,4  🏠 1,1 кВт  ☀️ 2,3`. */
+@Composable
+private fun PowerLine(p: Power, modifier: Modifier) {
+    Row(modifier, verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(22.dp)) {
+        BasicText(
+            if (p.grid) "Сеть ${p.gridVolts} В" else "Нет света",
+            Modifier.background(if (p.grid) Green.copy(.18f) else Red, RoundedCornerShape(10.dp)).padding(horizontal = 14.dp, vertical = 2.dp),
+            style = text(26, 800, if (p.grid) Green else Color.White),
+        )
+        val flow = when {
+            p.battery < -50 -> "  ↑${kw(-p.battery)}"
+            p.battery > 50 -> "  ↓${kw(p.battery)}"
+            else -> ""
+        }
+        BasicText("🔋 ${p.soc}%$flow", style = text(28, 800, if (p.soc <= 20) Red else Color.White))
+        BasicText("🏠 ${kw(p.load)} кВт", style = text(28, 800))
+        if (p.pv > 50) BasicText("☀️ ${kw(p.pv)}", style = text(28, 800, Amber))
+    }
+}
+
+private fun kw(w: Int) = String.format(Locale("ru"), "%.1f", w / 1000f)
 
 private fun signed(t: Int) = if (t > 0) "+$t" else "$t"
 

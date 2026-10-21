@@ -41,6 +41,7 @@ class Prefs(context: Context) {
     var dimAtNight by mutableStateOf(sp.getBoolean("dimAtNight", true))
     var nightGuard by mutableStateOf(sp.getBoolean("nightGuard", false))
     var autoOpen by mutableStateOf(sp.getBoolean("autoOpen", true))
+    var powerVoice by mutableStateOf(sp.getBoolean("powerVoice", true))
     val alarmCams = mutableStateListOf<String>().apply { addAll(sp.getStringSet("alarmCams", emptySet())!!) }
 
     /** Per camera: ignore people whose feet are in the top N % of the frame (a road in view). */
@@ -68,6 +69,7 @@ class Prefs(context: Context) {
             .putBoolean("dimAtNight", dimAtNight)
             .putBoolean("nightGuard", nightGuard)
             .putBoolean("autoOpen", autoOpen)
+            .putBoolean("powerVoice", powerVoice)
             .putStringSet("alarmCams", alarmCams.toSet())
             .putString("ignoreTop", ignoreTop.entries.joinToString(";") { "${it.key}=${it.value}" })
             .apply()
@@ -98,11 +100,12 @@ class SettingsScreen(private val prefs: Prefs, private val cams: () -> List<Came
         data object Dim : Item()
         data object Guard : Item()
         data object AutoOpen : Item()
+        data object PowerVoice : Item()
         data class Cam(val name: String) : Item()
         data object Test : Item()
     }
 
-    val items: List<Item> get() = listOf(Item.Voice, Item.From, Item.To, Item.Dim, Item.Guard, Item.AutoOpen) +
+    val items: List<Item> get() = listOf(Item.Voice, Item.From, Item.To, Item.Dim, Item.Guard, Item.AutoOpen, Item.PowerVoice) +
         cams().map { Item.Cam(it.name) } + Item.Test
 
     /** Returns true when the key was handled; [listen] plays the voice, [test] fires a sample alarm. */
@@ -140,6 +143,7 @@ class SettingsScreen(private val prefs: Prefs, private val cams: () -> List<Came
             Item.Dim -> prefs.dimAtNight = !prefs.dimAtNight
             Item.Guard -> prefs.nightGuard = !prefs.nightGuard
             Item.AutoOpen -> prefs.autoOpen = !prefs.autoOpen
+            Item.PowerVoice -> prefs.powerVoice = !prefs.powerVoice
             is Item.Cam -> if (!prefs.alarmCams.remove(item.name)) prefs.alarmCams.add(item.name)
             Item.Test -> { open = false; test() }
             else -> {}
@@ -179,6 +183,7 @@ fun SettingsSheet(s: SettingsScreen, prefs: Prefs) {
                         SettingsScreen.Item.Dim -> "Затемнять экран ночью" to onOff(prefs.dimAtNight)
                         SettingsScreen.Item.Guard -> "Ночная охрана: все камеры" to onOff(prefs.nightGuard)
                         SettingsScreen.Item.AutoOpen -> "Открывать камеру при тревоге" to onOff(prefs.autoOpen)
+                        SettingsScreen.Item.PowerVoice -> "Говорить, когда пропал свет" to onOff(prefs.powerVoice)
                         is SettingsScreen.Item.Cam -> item.name to (onOff(item.name in prefs.alarmCams) +
                             ((prefs.ignoreTop[item.name] ?: 0).takeIf { it > 0 }?.let { "  ·  без верха $it%" } ?: ""))
                         SettingsScreen.Item.Test -> "Проверить тревогу" to "OK"
