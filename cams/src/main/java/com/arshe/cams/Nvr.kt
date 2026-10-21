@@ -21,8 +21,17 @@ data class Camera(val id: String, val name: String, val main: String, val sub: S
  * NVR access lives in a file on the box, not in the APK:
  * /sdcard/Android/data/com.arshe.cams/files/nvr.properties (scripts/push-cams-config.sh)
  *   host=192.168.88.247  onvif.port=8080  user=…  pass=…  autostart=true
+ *   weather.lat=50.45  weather.lon=30.52   (optional, Kyiv by default)
  */
-data class Nvr(val host: String, val onvifPort: Int, val user: String, val pass: String, val autostart: Boolean) {
+data class Nvr(
+    val host: String,
+    val onvifPort: Int,
+    val user: String,
+    val pass: String,
+    val autostart: Boolean,
+    val lat: Double,
+    val lon: Double,
+) {
     companion object {
         fun load(context: Context): Nvr? {
             val f = File(context.getExternalFilesDir(null), "nvr.properties")
@@ -35,6 +44,8 @@ data class Nvr(val host: String, val onvifPort: Int, val user: String, val pass:
                 p.getProperty("user", ""),
                 p.getProperty("pass", ""),
                 p.getProperty("autostart", "true").toBoolean(),
+                p.getProperty("weather.lat")?.toDoubleOrNull() ?: 50.45,
+                p.getProperty("weather.lon")?.toDoubleOrNull() ?: 30.52,
             )
         }
     }

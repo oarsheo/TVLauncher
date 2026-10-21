@@ -81,6 +81,8 @@ class Wall {
     var focus by mutableIntStateOf(0)
     var full by mutableStateOf<Int?>(null)
     var muted by mutableStateOf(false)
+    var weather by mutableStateOf<Weather?>(null)
+    var weatherAt = 0L
     var lastInput by mutableLongStateOf(0L)
     val links = mutableStateMapOf<String, Link>()
 
@@ -108,6 +110,7 @@ class MainActivity : ComponentActivity() {
             addView(canvas {
                 Overlay(wall)
                 LaunchedEffect(Unit) { load() }
+                LaunchedEffect(wall.nvr) { wall.nvr?.let { weather(it) } }
             })
         })
     }
@@ -140,6 +143,16 @@ class MainActivity : ComponentActivity() {
             }
             if (wall.cams.isEmpty()) wall.problem = "NVR ${nvr.host} не отвечает\n${fresh.exceptionOrNull()?.message ?: "камер нет"}"
             delay(10_000)
+        }
+    }
+
+    private suspend fun weather(nvr: Nvr) {
+        while (true) {
+            val w = withContext(Dispatchers.IO) { runCatching { Weather.fetch(nvr.lat, nvr.lon) } }
+            // Keep the last reading through short outages; drop it once it's an hour stale.
+            w.onSuccess { wall.weather = it; wall.weatherAt = System.currentTimeMillis() }
+            if (w.isFailure && System.currentTimeMillis() - wall.weatherAt > 3_600_000) wall.weather = null
+            delay(if (w.isSuccess) 15 * 60_000L else 60_000L)
         }
     }
 
@@ -216,7 +229,8 @@ private fun Overlay(w: Wall) {
             w.nvr != null && w.cams.isNotEmpty() -> {
                 w.cams.forEachIndexed { i, cam -> TileOverlay(w, cam, i == w.focus, w.cell(i)) }
                 val n = w.cams.size
-                Info(w, w.cell(n, span = w.cols - n % w.cols))
+                val span = w.cols - n % w.cols
+                Info(w, w.cell(n, span = span), wide = span >= 2)
             }
             else -> BasicText(
                 w.problem ?: "Подключение к NVR…",
@@ -267,20 +281,46 @@ private fun Label(name: String, link: Link, size: Int) {
 }
 
 @Composable
-private fun Info(w: Wall, modifier: Modifier) {
+private fun Info(w: Wall, modifier: Modifier, wide: Boolean) {
     val now by clock()
-    Column(modifier.padding(start = 48.dp, top = 28.dp, end = 48.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-        BasicText(SimpleDateFormat("HH:mm", Locale.getDefault()).format(Date(now)), style = text(112, 800).copy(lineHeight = 112.sp))
-        BasicText(SimpleDateFormat("EEEE, d MMMM", Locale("ru")).format(Date(now)).replaceFirstChar { it.uppercase() }, style = text(34, 600, Color.White.copy(.75f)))
-        val on = w.online
-        val all = w.cams.size
-        Row(Modifier.padding(top = 14.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            Box(Modifier.size(14.dp).background(if (on == all) Green else Amber, CircleShape))
-            BasicText("$on из $all камер в сети", style = text(30, 700))
+    Row(modifier.padding(start = 48.dp, top = 28.dp, end = 48.dp)) {
+        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            BasicText(SimpleDateFormat("HH:mm", Locale.getDefault()).format(Date(now)), style = text(112, 800).copy(lineHeight = 112.sp))
+            BasicText(SimpleDateFormat("EEEE, d MMMM", Locale("ru")).format(Date(now)).replaceFirstChar { it.uppercase() }, style = text(34, 600, Color.White.copy(.75f)))
+            val on = w.online
+            val all = w.cams.size
+            Row(Modifier.padding(top = 14.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                Box(Modifier.size(14.dp).background(if (on == all) Green else Amber, CircleShape))
+                BasicText("$on из $all камер в сети", style = text(30, 700))
+            }
+            BasicText("OK — на весь экран  ·  1–${all.coerceAtMost(9)} — камера", Modifier.padding(top = 6.dp), style = text(24, 600, Color.White.copy(.4f)))
         }
-        BasicText("OK — на весь экран  ·  1–${all.coerceAtMost(9)} — камера", Modifier.padding(top = 6.dp), style = text(24, 600, Color.White.copy(.4f)))
+        val weather = w.weather
+        if (wide && weather != null) {
+            Box(Modifier.weight(1f))
+            WeatherBlock(weather)
+        }
     }
 }
+
+@Composable
+private fun WeatherBlock(x: Weather) {
+    Column(horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(18.dp)) {
+            BasicText(x.icon, style = TextStyle(fontSize = 84.sp))
+            BasicText("${signed(x.temp)}°", style = text(112, 800).copy(lineHeight = 112.sp))
+        }
+        BasicText(x.text, style = text(34, 600, Color.White.copy(.75f)))
+        BasicText("днём ${signed(x.max)}°  ·  ночью ${signed(x.min)}°", Modifier.padding(top = 14.dp), style = text(30, 700))
+        BasicText(
+            "ощущается ${signed(x.feels)}°  ·  ветер ${x.wind} м/с  ·  осадки ${x.rain}%",
+            Modifier.padding(top = 6.dp),
+            style = text(24, 600, Color.White.copy(.4f)),
+        )
+    }
+}
+
+private fun signed(t: Int) = if (t > 0) "+$t" else "$t"
 
 @Composable
 private fun FullOverlay(w: Wall, cam: Camera) {
