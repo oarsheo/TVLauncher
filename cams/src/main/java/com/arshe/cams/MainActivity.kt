@@ -522,7 +522,7 @@ private fun WeatherBlock(x: Weather) {
     }
 }
 
-/** Grid, battery, house and solar in one line: `● Сеть  🔋 87% ↑0,4  🏠 1,1 кВт  ☀️ 2,3`. */
+/** Grid, battery, house and solar in one line: `● Сеть  🔋 87% ↑0,4 (↑ gives, ↓ charges)  🏠 1,1 кВт  ☀️ 2,3`. */
 @Composable
 private fun PowerLine(p: Power, modifier: Modifier) {
     Row(modifier, verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(22.dp)) {
@@ -532,8 +532,8 @@ private fun PowerLine(p: Power, modifier: Modifier) {
             style = text(26, 800, if (p.grid) Green else Color.White),
         )
         val flow = when {
-            p.battery < -50 -> "  ↑${kw(-p.battery)}"
-            p.battery > 50 -> "  ↓${kw(p.battery)}"
+            p.battery < -50 -> "  ↓${kw(-p.battery)}"
+            p.battery > 50 -> "  ↑${kw(p.battery)}"
             else -> ""
         }
         BasicText("🔋 ${p.soc}%$flow", style = text(28, 800, if (p.soc <= 20) Red else Color.White))
