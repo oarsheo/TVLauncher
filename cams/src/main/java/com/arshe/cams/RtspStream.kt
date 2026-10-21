@@ -1,5 +1,8 @@
 package com.arshe.cams
 
+import android.media.AudioAttributes
+import android.media.AudioFormat
+import android.media.AudioTrack
 import android.media.MediaCodec
 import android.media.MediaFormat
 import android.util.Log
@@ -13,6 +16,8 @@ import java.net.Socket
 import java.net.URI
 import java.nio.ByteBuffer
 import java.security.MessageDigest
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
 
 enum class Link { Connecting, Live, Offline }
 
@@ -21,19 +26,23 @@ enum class Link { Connecting, Live, Offline }
  * into the hardware decoder and onto [surface] as soon as they're decoded (no A/V sync, no
  * jitter buffer: lowest latency). Ajax NVRs announce no sprop-* parameter sets in the SDP,
  * which ExoPlayer refuses; here they're picked up in-band before the first keyframe.
- * Reconnects on its own until [stop].
+ * With [sound], the G.722 audio track plays too. Reconnects on its own until [stop].
  */
 class RtspStream(
     private val url: String,
     private val user: String,
     private val pass: String,
     private val surface: Surface,
+    private val sound: Boolean = false,
     private val onLink: (Link) -> Unit,
 ) {
     @Volatile private var running = false
     @Volatile private var socket: Socket? = null
+    @Volatile var muted = false
+    private val stopped = CountDownLatch(1)
     private var thread: Thread? = null
     private var video: Video? = null
+    private var audio: Audio? = null
 
     fun start() {
         running = true
@@ -43,8 +52,8 @@ class RtspStream(
     /** Blocks until the decoder is released, so the surface can go away right after. */
     fun stop() {
         running = false
+        stopped.countDown()
         runCatching { socket?.close() }
-        thread?.interrupt()
         thread?.join(3000)
         thread = null
     }
@@ -61,15 +70,17 @@ class RtspStream(
                     session(s)
                 }
             } catch (e: Exception) {
-                if (running) Log.w(TAG, "${url.substringAfterLast('/')}: ${e.message}")
+                if (running) Log.w(TAG, "${url.substringAfterLast('/')}: $e")
             } finally {
                 if (video?.live == true) backoff = 1000L
                 video?.release()
                 video = null
+                audio?.release()
+                audio = null
             }
             if (!running) break
             onLink(Link.Offline)
-            try { Thread.sleep(backoff) } catch (_: InterruptedException) { break }
+            if (stopped.await(backoff, TimeUnit.MILLISECONDS)) break
             backoff = (backoff * 2).coerceAtMost(15_000)
         }
     }
@@ -79,19 +90,29 @@ class RtspStream(
         val rtsp = Rtsp(input, s.getOutputStream())
 
         val desc = rtsp.request("DESCRIBE", url, "Accept: application/sdp\r\n")
-        val track = Sdp.video(desc.body) ?: error("no video track")
+        val tracks = Sdp.tracks(desc.body)
+        val track = tracks.firstOrNull { it.codec == "H265" || it.codec == "HEVC" || it.codec == "H264" } ?: error("no video track")
         val base = desc.header("content-base") ?: url
-        val trackUrl = when {
-            track.control.startsWith("rtsp://") -> track.control
-            track.control == "*" || track.control.isEmpty() -> base
-            else -> base.trimEnd('/') + "/" + track.control
+        fun trackUrl(control: String) = when {
+            control.startsWith("rtsp://") -> control
+            control == "*" || control.isEmpty() -> base
+            else -> base.trimEnd('/') + "/" + control
         }
-        val setup = rtsp.request("SETUP", trackUrl, "Transport: RTP/AVP/TCP;unicast;interleaved=0-1\r\n")
+        fun channel(r: Response, default: Int) =
+            r.header("transport")?.let { Regex("interleaved=(\\d+)").find(it)?.groupValues?.get(1)?.toInt() } ?: default
+
+        val setup = rtsp.request("SETUP", trackUrl(track.control), "Transport: RTP/AVP/TCP;unicast;interleaved=0-1\r\n")
         rtsp.session = setup.header("session")?.substringBefore(';')?.trim()
-        val channel = setup.header("transport")?.let { Regex("interleaved=(\\d+)").find(it)?.groupValues?.get(1)?.toInt() } ?: 0
+        val channel = channel(setup, 0)
+        var audioChannel = -1
+        val sound = tracks.firstOrNull { it.codec == "G722" }?.takeIf { sound }
+        if (sound != null) {
+            audioChannel = channel(rtsp.request("SETUP", trackUrl(sound.control), "Transport: RTP/AVP/TCP;unicast;interleaved=2-3\r\n"), 2)
+            audio = Audio()
+        }
         rtsp.request("PLAY", base, "Range: npt=0.000-\r\n")
 
-        val video = Video(track.hevc).also { this.video = it }
+        val video = Video(track.codec != "H264").also { this.video = it }
         val buf = ByteArray(1 shl 16)
         var keepAlive = System.currentTimeMillis()
         while (running) {
@@ -101,6 +122,7 @@ class RtspStream(
                 val len = input.readUnsignedShort()
                 input.readFully(buf, 0, len)
                 if (ch == channel) video.rtp(buf, len)
+                else if (ch == audioChannel) audio?.rtp(buf, len)
             } else {
                 rtsp.skipResponse(b) // reply to a keep-alive
             }
@@ -199,30 +221,72 @@ class RtspStream(
     }
 
     private object Sdp {
-        class Track(val hevc: Boolean, val control: String)
+        class Track(val codec: String, val control: String)
 
-        fun video(sdp: String): Track? {
-            var inVideo = false
+        fun tracks(sdp: String): List<Track> {
+            val out = mutableListOf<Track>()
             var pt: String? = null
             var codec: String? = null
             var control = ""
+            var inMedia = false
+            fun close() { if (inMedia && codec != null) out += Track(codec!!, control) }
             for (raw in sdp.lineSequence()) {
                 val l = raw.trim()
                 if (l.startsWith("m=")) {
-                    if (inVideo) break
-                    inVideo = l.startsWith("m=video")
+                    close()
+                    inMedia = true
                     pt = l.split(' ').getOrNull(3)
-                } else if (inVideo && l.startsWith("a=rtpmap:$pt ")) {
+                    codec = null
+                    control = ""
+                } else if (inMedia && l.startsWith("a=rtpmap:$pt ")) {
                     codec = l.substringAfter(' ').substringBefore('/').uppercase()
-                } else if (inVideo && l.startsWith("a=control:")) {
+                } else if (inMedia && l.startsWith("a=control:")) {
                     control = l.removePrefix("a=control:")
                 }
             }
-            return when (codec) {
-                "H265", "HEVC" -> Track(true, control)
-                "H264" -> Track(false, control)
-                else -> null
-            }
+            close()
+            return out
+        }
+    }
+
+    // --- Audio ---------------------------------------------------------------------------
+
+    /** G.722 → 16 kHz PCM with a gentle automatic gain (the cameras' microphones are quiet). */
+    private inner class Audio {
+        private val decoder = G722()
+        private val pcm = ShortArray(4096)
+        private var gain = 4f
+        private var peak = 1000f
+        private val track: AudioTrack = AudioTrack.Builder()
+            .setAudioAttributes(AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_MEDIA).setContentType(AudioAttributes.CONTENT_TYPE_MOVIE).build())
+            .setAudioFormat(AudioFormat.Builder().setSampleRate(16000).setChannelMask(AudioFormat.CHANNEL_OUT_MONO).setEncoding(AudioFormat.ENCODING_PCM_16BIT).build())
+            .setBufferSizeInBytes(maxOf(AudioTrack.getMinBufferSize(16000, AudioFormat.CHANNEL_OUT_MONO, AudioFormat.ENCODING_PCM_16BIT) * 2, 16000))
+            .setTransferMode(AudioTrack.MODE_STREAM)
+            .build()
+            .also { it.play() }
+
+        fun rtp(b: ByteArray, len: Int) {
+            if (len < 12) return
+            var off = 12 + (b[0].toInt() and 0x0f) * 4
+            if (b[0].toInt() and 0x10 != 0) off += 4 + u16(b, off + 2) * 4
+            var end = len
+            if (b[0].toInt() and 0x20 != 0) end -= b[len - 1].toInt() and 0xff
+            if (off >= end || (end - off) * 2 > pcm.size) return
+            val n = decoder.decode(b, off, end - off, pcm)
+            if (muted) return
+
+            var p = 0
+            for (i in 0 until n) p = maxOf(p, kotlin.math.abs(pcm[i].toInt()))
+            peak = if (p > peak) p.toFloat() else peak * 0.998f + p * 0.002f
+            val target = (12000f / peak.coerceAtLeast(300f)).coerceIn(1f, MAX_GAIN)
+            gain += (target - gain) * (if (target < gain) 0.5f else 0.02f) // duck fast, rise slowly
+            for (i in 0 until n) pcm[i] = (pcm[i] * gain).toInt().coerceIn(-32768, 32767).toShort()
+            track.write(pcm, 0, n, AudioTrack.WRITE_NON_BLOCKING) // never stall the video
+        }
+
+        fun release() {
+            runCatching { track.stop() }
+            track.release()
         }
     }
 
@@ -409,7 +473,7 @@ class RtspStream(
 
         fun release() {
             draining = false
-            drain?.join(1000)
+            runCatching { drain?.join(1000) }
             codec?.let { runCatching { it.stop() }; runCatching { it.release() } }
             codec = null
         }
@@ -418,6 +482,7 @@ class RtspStream(
     companion object {
         private const val TAG = "Cams"
         private val START = byteArrayOf(0, 0, 0, 1)
+        private const val MAX_GAIN = 10f
 
         private fun u16(b: ByteArray, i: Int) = ((b[i].toInt() and 0xff) shl 8) or (b[i + 1].toInt() and 0xff)
         private fun u32(b: ByteArray, i: Int) = (u16(b, i).toLong() shl 16) or u16(b, i + 2).toLong()

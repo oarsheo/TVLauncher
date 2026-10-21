@@ -80,6 +80,7 @@ class Wall {
     var problem by mutableStateOf<String?>(null)
     var focus by mutableIntStateOf(0)
     var full by mutableStateOf<Int?>(null)
+    var muted by mutableStateOf(false)
     var lastInput by mutableLongStateOf(0L)
     val links = mutableStateMapOf<String, Link>()
 
@@ -168,6 +169,10 @@ class MainActivity : ComponentActivity() {
                 return true
             }
             KeyEvent.KEYCODE_DPAD_UP, KeyEvent.KEYCODE_DPAD_DOWN -> {
+                if (full != null) {
+                    if (down && e.repeatCount == 0) w.muted = !w.muted
+                    return true
+                }
                 val d = if (e.keyCode == KeyEvent.KEYCODE_DPAD_UP) -w.cols else w.cols
                 if (down && full == null) (w.focus + d).takeIf { it in 0 until n }?.let { w.focus = it }
                 return true
@@ -192,7 +197,7 @@ private fun Videos(w: Wall) = Box(Modifier.fillMaxSize()) {
         val cam = w.cams[full.coerceIn(0, w.cams.size - 1)]
         key(cam.id) {
             LaunchedEffect(Unit) { w.links["full"] = Link.Connecting }
-            Video(cam.main, nvr, { w.links["full"] = it }, Modifier.fillMaxSize())
+            Video(cam.main, nvr, { w.links["full"] = it }, Modifier.fillMaxSize(), sound = true, muted = w.muted)
         }
     } else {
         w.cams.forEachIndexed { i, cam ->
@@ -288,14 +293,13 @@ private fun FullOverlay(w: Wall, cam: Camera) {
                 .padding(horizontal = 48.dp, vertical = 32.dp),
         ) {
             Label(cam.name, link, 36)
-            BasicText(
-                SimpleDateFormat("HH:mm", Locale.getDefault()).format(Date(now)),
-                Modifier.align(Alignment.CenterEnd),
-                style = text(36, 700),
-            )
+            Row(Modifier.align(Alignment.CenterEnd), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(28.dp)) {
+                BasicText(if (w.muted) "Звук выкл" else "Звук вкл", style = text(26, 700, if (w.muted) Red.copy(.9f) else Color.White.copy(.6f)))
+                BasicText(SimpleDateFormat("HH:mm", Locale.getDefault()).format(Date(now)), style = text(36, 700))
+            }
         }
         BasicText(
-            "← →  камеры  ·  OK — сетка",
+            "← →  камеры  ·  ↑ ↓  звук  ·  OK — сетка",
             Modifier.align(Alignment.BottomEnd).padding(32.dp),
             style = text(22, 600, Color.White.copy(.35f)),
         )
@@ -314,27 +318,43 @@ private fun clock() = remember { mutableLongStateOf(System.currentTimeMillis()) 
 
 private val main = Handler(Looper.getMainLooper())
 
-/** A SurfaceView that streams [url] for as long as its surface exists. */
+/** Streams [url] onto a surface for as long as the surface exists. */
+private class Player(
+    private val url: String,
+    private val nvr: Nvr,
+    private val sound: Boolean,
+    private val report: (Link) -> Unit,
+) : SurfaceHolder.Callback {
+    private var stream: RtspStream? = null
+    var muted = false
+        set(v) { field = v; stream?.muted = v }
+
+    override fun surfaceCreated(h: SurfaceHolder) {
+        main.post { report(Link.Connecting) }
+        stream = RtspStream(url, nvr.user, nvr.pass, h.surface, sound) { l -> main.post { report(l) } }
+            .also { it.muted = muted; it.start() }
+    }
+
+    override fun surfaceChanged(h: SurfaceHolder, format: Int, width: Int, height: Int) {}
+
+    override fun surfaceDestroyed(h: SurfaceHolder) {
+        stream?.stop()
+        stream = null
+    }
+}
+
 @Composable
-private fun Video(url: String, nvr: Nvr, onLink: (Link) -> Unit, modifier: Modifier) {
+private fun Video(url: String, nvr: Nvr, onLink: (Link) -> Unit, modifier: Modifier, sound: Boolean = false, muted: Boolean = false) {
     val report by rememberUpdatedState(onLink)
     AndroidView(
         factory = { ctx ->
             SurfaceView(ctx).apply {
-                holder.addCallback(object : SurfaceHolder.Callback {
-                    var stream: RtspStream? = null
-                    override fun surfaceCreated(h: SurfaceHolder) {
-                        main.post { report(Link.Connecting) }
-                        stream = RtspStream(url, nvr.user, nvr.pass, h.surface) { l -> main.post { report(l) } }.also { it.start() }
-                    }
-                    override fun surfaceChanged(h: SurfaceHolder, format: Int, width: Int, height: Int) {}
-                    override fun surfaceDestroyed(h: SurfaceHolder) {
-                        stream?.stop()
-                        stream = null
-                    }
-                })
+                val p = Player(url, nvr, sound) { report(it) }.also { it.muted = muted }
+                holder.addCallback(p)
+                tag = p
             }
         },
+        update = { (it.tag as Player).muted = muted },
         modifier = modifier,
     )
 }
