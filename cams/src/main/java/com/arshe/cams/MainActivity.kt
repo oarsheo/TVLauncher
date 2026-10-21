@@ -83,6 +83,11 @@ class Wall {
     var muted by mutableStateOf(false)
     var weather by mutableStateOf<Weather?>(null)
     var weatherAt = 0L
+    var dim by mutableStateOf(false)
+    var keyAt = 0L                                  // last real key press
+    val alarms = mutableStateMapOf<String, Long>()  // camera id -> last person seen
+    var autoFull by mutableStateOf(false)           // fullscreen opened by an alarm
+    var lastEvent by mutableStateOf<String?>(null)
     var lastInput by mutableLongStateOf(0L)
     val links = mutableStateMapOf<String, Link>()
 
@@ -99,6 +104,9 @@ class Wall {
 
 class MainActivity : ComponentActivity() {
     private val wall = Wall()
+    private var events: Events? = null
+    private var voice: Announcer? = null
+    private val spoken = HashMap<String, Long>()
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -111,6 +119,7 @@ class MainActivity : ComponentActivity() {
                 Overlay(wall)
                 LaunchedEffect(Unit) { load() }
                 LaunchedEffect(wall.nvr) { wall.nvr?.let { weather(it) } }
+                LaunchedEffect(wall.nvr) { wall.nvr?.let { watch(it) } }
             })
         })
     }
@@ -146,6 +155,52 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    /** Person alarms on the cameras listed in nvr.alarm: voice, red tile, camera fullscreen. */
+    private fun watch(nvr: Nvr) {
+        if (nvr.alarms.isEmpty()) return
+        voice = Announcer(this)
+        events = Events(nvr) { source, confidence ->
+            if (confidence >= 60) main.post { person(nvr, source) }
+        }.also { it.start() }
+    }
+
+    private fun person(nvr: Nvr, source: String) {
+        val w = wall
+        val i = w.cams.indexOfFirst { it.id == source }
+        if (i < 0) return
+        val cam = w.cams[i]
+        val phrase = nvr.alarms[cam.name] ?: return
+        val now = System.currentTimeMillis()
+        w.alarms[cam.id] = now
+        w.lastEvent = "Человек · ${cam.name} · ${SimpleDateFormat("HH:mm", Locale.getDefault()).format(Date(now))}"
+        w.lastInput = now // wakes the wall from night dimming
+        if (now - (spoken[cam.id] ?: 0L) > 60_000) {
+            spoken[cam.id] = now
+            voice?.say(phrase)
+        }
+        // Show the camera unless someone is busy with the remote.
+        if (w.full != i && now - w.keyAt > 30_000) {
+            w.full = i
+            w.focus = i
+            w.autoFull = true
+        }
+    }
+
+    // Test hook: adb shell am start -n com.arshe.cams/.MainActivity --es alarm "Главный вход"
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        val name = intent.getStringExtra("alarm") ?: return
+        val nvr = wall.nvr ?: return
+        if (voice == null) voice = Announcer(this)
+        wall.cams.firstOrNull { it.name == name }?.let { person(nvr, it.id) }
+    }
+
+    override fun onDestroy() {
+        events?.stop()
+        voice?.shutdown()
+        super.onDestroy()
+    }
+
     private suspend fun weather(nvr: Nvr) {
         while (true) {
             val w = withContext(Dispatchers.IO) { runCatching { Weather.fetch(nvr.lat, nvr.lon) } }
@@ -161,7 +216,11 @@ class MainActivity : ComponentActivity() {
         val n = w.cams.size
         if (n == 0) return super.dispatchKeyEvent(e)
         val down = e.action == KeyEvent.ACTION_DOWN
-        if (down) w.lastInput = System.currentTimeMillis()
+        if (down) {
+            w.lastInput = System.currentTimeMillis()
+            w.keyAt = w.lastInput
+            w.autoFull = false
+        }
         val full = w.full
         when (e.keyCode) {
             KeyEvent.KEYCODE_BACK -> {
@@ -239,6 +298,36 @@ private fun Overlay(w: Wall) {
             )
         }
     }
+    // Night: dim everything (video included) so the monitor doesn't light up the room;
+    // any key brings full brightness back for two minutes.
+    val nvr = w.nvr
+    LaunchedEffect(nvr, w.lastInput) {
+        if (nvr == null) return@LaunchedEffect
+        while (true) {
+            val hour = java.util.Calendar.getInstance().get(java.util.Calendar.HOUR_OF_DAY)
+            val night = if (nvr.nightFrom > nvr.nightTo) hour >= nvr.nightFrom || hour < nvr.nightTo else hour in nvr.nightFrom until nvr.nightTo
+            w.dim = night && System.currentTimeMillis() - w.lastInput > 2 * 60_000L
+            delay(30_000)
+        }
+    }
+    val shade by androidx.compose.animation.core.animateFloatAsState(if (w.dim) .6f else 0f, androidx.compose.animation.core.tween(1500), label = "night")
+    if (shade > 0f) Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = shade)))
+
+    // An alarm's fullscreen goes back to the wall 30 s after the last sighting.
+    val alarmCam = w.full?.let { w.cams.getOrNull(it)?.id }
+    val seen = alarmCam?.let { w.alarms[it] } ?: 0L
+    LaunchedEffect(w.autoFull, seen) {
+        if (!w.autoFull) return@LaunchedEffect
+        delay(30_000)
+        if (w.autoFull) { w.full = null; w.autoFull = false }
+    }
+    // Repaint tiles when their alarm frame expires.
+    LaunchedEffect(w.alarms.values.maxOrNull()) {
+        delay(30_000)
+        val now = System.currentTimeMillis()
+        w.alarms.entries.removeAll { now - it.value >= 30_000 }
+    }
+
     // Fullscreen left alone falls back to the wall.
     LaunchedEffect(w.full, w.lastInput) {
         if (w.full != null) { delay(10 * 60_000L); w.full = null }
@@ -258,6 +347,14 @@ private fun TileOverlay(w: Wall, cam: Camera, focused: Boolean, modifier: Modifi
             Label(cam.name, link, if (focused) 28 else 24)
         }
         if (focused) Box(Modifier.fillMaxSize().border(4.dp, Color.White, RoundedCornerShape(4.dp)))
+        if (w.alarms.containsKey(cam.id)) {
+            Box(Modifier.fillMaxSize().border(6.dp, Red, RoundedCornerShape(4.dp)))
+            BasicText(
+                "Человек",
+                Modifier.padding(14.dp).background(Red, RoundedCornerShape(8.dp)).padding(horizontal = 14.dp, vertical = 6.dp),
+                style = text(24, 800),
+            )
+        }
     }
 }
 
@@ -294,6 +391,7 @@ private fun Info(w: Wall, modifier: Modifier, wide: Boolean) {
                 BasicText("$on из $all камер в сети", style = text(30, 700))
             }
             BasicText("OK — на весь экран  ·  1–${all.coerceAtMost(9)} — камера", Modifier.padding(top = 6.dp), style = text(24, 600, Color.White.copy(.4f)))
+            w.lastEvent?.let { BasicText(it, Modifier.padding(top = 4.dp), style = text(24, 700, Red.copy(.85f))) }
         }
         val weather = w.weather
         if (wide && weather != null) {
@@ -332,7 +430,14 @@ private fun FullOverlay(w: Wall, cam: Camera) {
             Modifier.fillMaxWidth().background(Brush.verticalGradient(0f to Color.Black.copy(.6f), 1f to Color.Transparent))
                 .padding(horizontal = 48.dp, vertical = 32.dp),
         ) {
-            Label(cam.name, link, 36)
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(20.dp)) {
+                Label(cam.name, link, 36)
+                if (w.alarms.containsKey(cam.id)) BasicText(
+                    "Человек",
+                    Modifier.background(Red, RoundedCornerShape(8.dp)).padding(horizontal = 14.dp, vertical = 4.dp),
+                    style = text(26, 800),
+                )
+            }
             Row(Modifier.align(Alignment.CenterEnd), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(28.dp)) {
                 BasicText(if (w.muted) "Звук выкл" else "Звук вкл", style = text(26, 700, if (w.muted) Red.copy(.9f) else Color.White.copy(.6f)))
                 BasicText(SimpleDateFormat("HH:mm", Locale.getDefault()).format(Date(now)), style = text(36, 700))

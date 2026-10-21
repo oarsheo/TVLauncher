@@ -22,6 +22,9 @@ data class Camera(val id: String, val name: String, val main: String, val sub: S
  * /sdcard/Android/data/com.arshe.cams/files/nvr.properties (scripts/push-cams-config.sh)
  *   host=192.168.88.247  onvif.port=8080  user=…  pass=…  autostart=true
  *   weather.lat=50.45  weather.lon=30.52   (optional, Kyiv by default)
+ *   night.from=23  night.to=7               (hours the wall dims, optional)
+ *   alarm=Главный вход:Человек у главного входа; Гараж:Человек у гаража
+ *                                           (cameras that announce a person, UTF-8)
  */
 data class Nvr(
     val host: String,
@@ -31,12 +34,15 @@ data class Nvr(
     val autostart: Boolean,
     val lat: Double,
     val lon: Double,
+    val nightFrom: Int,
+    val nightTo: Int,
+    val alarms: Map<String, String>,
 ) {
     companion object {
         fun load(context: Context): Nvr? {
             val f = File(context.getExternalFilesDir(null), "nvr.properties")
             if (!f.exists()) return null
-            val p = Properties().apply { f.inputStream().use { load(it) } }
+            val p = Properties().apply { f.reader(Charsets.UTF_8).use { load(it) } }
             val host = p.getProperty("host")?.takeIf { it.isNotBlank() } ?: return null
             return Nvr(
                 host,
@@ -46,6 +52,12 @@ data class Nvr(
                 p.getProperty("autostart", "true").toBoolean(),
                 p.getProperty("weather.lat")?.toDoubleOrNull() ?: 50.45,
                 p.getProperty("weather.lon")?.toDoubleOrNull() ?: 30.52,
+                p.getProperty("night.from")?.toIntOrNull() ?: 23,
+                p.getProperty("night.to")?.toIntOrNull() ?: 7,
+                p.getProperty("alarm", "").split(';').mapNotNull { e ->
+                    val (cam, phrase) = e.split(':', limit = 2).takeIf { it.size == 2 } ?: return@mapNotNull null
+                    cam.trim().takeIf { it.isNotEmpty() }?.let { it to phrase.trim() }
+                }.toMap(),
             )
         }
     }
@@ -85,16 +97,16 @@ object Onvif {
     // "Камера 3" goes after the cameras somebody bothered to name.
     private fun numbered(name: String) = Regex("^(?:камера|camera|cam)\\s*(\\d+)$", RegexOption.IGNORE_CASE).find(name.trim())?.groupValues?.get(1)?.toInt()
 
-    private fun soap(nvr: Nvr, url: String, body: String): String {
+    fun soap(nvr: Nvr, url: String, body: String, header: String = "", timeout: Int = 8000): String {
         val nonce = ByteArray(16).also { SecureRandom().nextBytes(it) }
         val created = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss'Z'", Locale.US).apply { timeZone = TimeZone.getTimeZone("UTC") }.format(Date())
         val digest = MessageDigest.getInstance("SHA-1").run {
             update(nonce); update(created.toByteArray()); update(nvr.pass.toByteArray()); digest()
         }
-        val env = """<s:Envelope xmlns:s="http://www.w3.org/2003/05/soap-envelope" xmlns:trt="http://www.onvif.org/ver10/media/wsdl" xmlns:tt="http://www.onvif.org/ver10/schema" xmlns:tds="http://www.onvif.org/ver10/device/wsdl"><s:Header><Security xmlns="http://docs.oasis-open.org/wss/2004/01/oasis-200401-wss-wssecurity-secext-1.0.xsd"><UsernameToken><Username>${nvr.user}</Username><Password Type="http://docs.oasis-open.org/wss/2004/01/oasis-200401-wss-username-token-profile-1.0#PasswordDigest">${b64(digest)}</Password><Nonce EncodingType="http://docs.oasis-open.org/wss/2004/01/oasis-200401-wss-soap-message-security-1.0#Base64Binary">${b64(nonce)}</Nonce><Created xmlns="http://docs.oasis-open.org/wss/2004/01/oasis-200401-wss-wssecurity-utility-1.0.xsd">$created</Created></UsernameToken></Security></s:Header><s:Body>$body</s:Body></s:Envelope>"""
+        val env = """<s:Envelope xmlns:s="http://www.w3.org/2003/05/soap-envelope" xmlns:trt="http://www.onvif.org/ver10/media/wsdl" xmlns:tt="http://www.onvif.org/ver10/schema" xmlns:tds="http://www.onvif.org/ver10/device/wsdl" xmlns:tev="http://www.onvif.org/ver10/events/wsdl" xmlns:a="http://www.w3.org/2005/08/addressing"><s:Header>$header<Security xmlns="http://docs.oasis-open.org/wss/2004/01/oasis-200401-wss-wssecurity-secext-1.0.xsd"><UsernameToken><Username>${nvr.user}</Username><Password Type="http://docs.oasis-open.org/wss/2004/01/oasis-200401-wss-username-token-profile-1.0#PasswordDigest">${b64(digest)}</Password><Nonce EncodingType="http://docs.oasis-open.org/wss/2004/01/oasis-200401-wss-soap-message-security-1.0#Base64Binary">${b64(nonce)}</Nonce><Created xmlns="http://docs.oasis-open.org/wss/2004/01/oasis-200401-wss-wssecurity-utility-1.0.xsd">$created</Created></UsernameToken></Security></s:Header><s:Body>$body</s:Body></s:Envelope>"""
         val c = URL(url).openConnection() as HttpURLConnection
         c.connectTimeout = 5000
-        c.readTimeout = 8000
+        c.readTimeout = timeout
         c.requestMethod = "POST"
         c.doOutput = true
         c.setRequestProperty("Content-Type", "application/soap+xml; charset=utf-8")
