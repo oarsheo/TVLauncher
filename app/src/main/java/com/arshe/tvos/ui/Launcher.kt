@@ -68,8 +68,14 @@ data class SheetRow(
     val run: () -> Unit = {},
 )
 
-/** An entry of the top bar: a content app (switches the page) or a shortcut (runs on OK). */
-data class NavItem(val label: String, val tile: HeroItem, val isTab: Boolean)
+/**
+ * An entry of the top bar: a content app (switches the page) or a shortcut (runs on OK).
+ * A [labeled] shortcut sits with the tabs on the left and always shows its name.
+ */
+data class NavItem(val label: String, val tile: HeroItem, val isTab: Boolean, val labeled: Boolean = false)
+
+/** Our camera wall app (cams module); gets its own entry in the top bar when installed. */
+const val PKG_CAMS = "com.arshe.cams"
 
 val CONTENT_APPS = listOf(PKG_NETFLIX, PKG_YOUTUBE, PKG_MEGOGO, PKG_APPLETV)
 
@@ -118,6 +124,7 @@ class Launcher(
             // Content apps follow the user's order from "Все приложения".
             val tabs = listOf(NavItem("Главная", HOME_TAB, isTab = true)) +
                 contentTiles.map { NavItem(it.title, it, isTab = true) }
+            val cams = listOfNotNull(by[PKG_CAMS]?.let { NavItem("Камеры", it, isTab = false, labeled = true) })
             val shortcuts = listOfNotNull(
                 NavItem("Поиск", SEARCH_TILE, false),
                 by[KEY_TV]?.let { NavItem("ТВ", it, false) },
@@ -125,7 +132,7 @@ class Launcher(
                 NavItem("Приложения", AppsRepository.allAppsTile, false),
                 by[KEY_SETTINGS]?.let { NavItem("Настройки", it, false) },
             )
-            return tabs + shortcuts
+            return tabs + cams + shortcuts
         }
 
     val tabCount: Int get() = nav.count { it.isTab }

@@ -169,8 +169,8 @@ private fun TopBar(l: Launcher, time: String, vpn: Boolean) {
         verticalAlignment = Alignment.CenterVertically,
     ) {
         // Content apps on the left; shortcut icons pinned to the right, next to the clock.
-        val tabs = nav.withIndex().filter { it.value.isTab }
-        val shortcuts = nav.withIndex().filter { !it.value.isTab }
+        val tabs = nav.withIndex().filter { it.value.isTab || it.value.labeled }
+        val shortcuts = nav.withIndex().filter { !it.value.isTab && !it.value.labeled }
         tabs.forEach { (i, item) ->
             NavChip(item, focused = l.zone == Zone.Nav && l.navIdx == i, selected = item.tile.key == selectedKey)
         }
@@ -200,7 +200,7 @@ private fun NavChip(item: NavItem, focused: Boolean, selected: Boolean) {
         !item.isTab -> Color.White.copy(.6f)
         else -> Color.White.copy(.72f)
     }
-    val showLabel = item.isTab || focused
+    val showLabel = item.isTab || item.labeled || focused
     Box(contentAlignment = Alignment.BottomCenter) {
         Row(
             Modifier.graphicsLayer { scaleX = s; scaleY = s }
@@ -244,6 +244,12 @@ private fun NavGlyph(key: String, ink: Color) {
                     moveTo(3f, 9f); lineTo(27f, 9f); lineTo(27f, 17f); lineTo(23f, 22f); lineTo(7f, 22f); lineTo(3f, 17f); close()
                 }, ink, style = st)
                 drawLine(ink, Offset(10f, 14f), Offset(20f, 14f), 2.6f, StrokeCap.Round)
+            }
+            PKG_CAMS -> {
+                // Video camera: body + lens wedge, and a red recording dot.
+                drawRoundRect(ink, Offset(3f, 9f), Size(17f, 13f), CornerRadius(3f), style = st)
+                drawPath(Path().apply { moveTo(20f, 13.5f); lineTo(27f, 10f); lineTo(27f, 21f); lineTo(20f, 17.5f); close() }, ink, style = st)
+                drawCircle(Color(0xFFFF453A), 2.6f, Offset(8f, 4.5f))
             }
             KEY_ALL -> listOf(4f to 4f, 17f to 4f, 4f to 17f, 17f to 17f).forEach { (x, y) ->
                 drawRoundRect(ink, Offset(x, y), Size(9f, 9f), CornerRadius(2.5f))
