@@ -26,7 +26,9 @@ enum class Link { Connecting, Live, Offline }
  * into the hardware decoder and onto [surface] as soon as they're decoded (no A/V sync, no
  * jitter buffer: lowest latency). Ajax NVRs announce no sprop-* parameter sets in the SDP,
  * which ExoPlayer refuses; here they're picked up in-band before the first keyframe.
- * With [sound], the G.722 audio track plays too. Reconnects on its own until [stop].
+ * With [sound], the G.722 audio track plays too. With [thumbs], only keyframes are decoded, in
+ * software (about one picture a second): for grids on devices with few hardware decoders, which
+ * stay free for the fullscreen camera. Reconnects on its own until [stop].
  */
 class RtspStream(
     private val url: String,
@@ -34,6 +36,7 @@ class RtspStream(
     private val pass: String,
     private val surface: Surface,
     private val sound: Boolean = false,
+    private val thumbs: Boolean = false,
     private val onLink: (Link) -> Unit,
 ) {
     @Volatile private var running = false
@@ -62,6 +65,7 @@ class RtspStream(
         var backoff = 1000L
         while (running) {
             try {
+                t0 = System.currentTimeMillis()
                 Socket().use { s ->
                     socket = s
                     s.connect(InetSocketAddress(URI(url).host, URI(url).port.takeIf { it > 0 } ?: 554), 5000)
@@ -85,7 +89,12 @@ class RtspStream(
         }
     }
 
+    private val tag get() = url.substringAfterLast('/')
+    private var t0 = 0L
+    private fun mark(what: String) = Log.i(TAG, "$tag: $what +${System.currentTimeMillis() - t0}ms")
+
     private fun session(s: Socket) {
+        mark("connected")
         val input = DataInputStream(BufferedInputStream(s.getInputStream(), 1 shl 16))
         val rtsp = Rtsp(input, s.getOutputStream())
 
@@ -111,6 +120,7 @@ class RtspStream(
             audio = Audio()
         }
         rtsp.request("PLAY", base, "Range: npt=0.000-\r\n")
+        mark("playing")
 
         val video = Video(track.codec != "H264").also { this.video = it }
         val buf = ByteArray(1 shl 16)
@@ -411,13 +421,13 @@ class RtspStream(
             auKey = false
             val pts = pts(auTs)
             if (codec == null && (!key || !configure())) return
-            if (needKey && !key) return
+            if ((needKey || thumbs) && !key) return
             needKey = false
             val c = codec ?: return
             val i = c.dequeueInputBuffer(200_000)
-            if (i < 0) { needKey = true; return }
+            if (i < 0) { Log.w(TAG, "${url.substringAfterLast('/')}: no input buffer, key=$key"); needKey = true; return }
             val ib = c.getInputBuffer(i) ?: return
-            if (data.size > ib.capacity()) { c.queueInputBuffer(i, 0, 0, pts, 0); needKey = true; return }
+            if (data.size > ib.capacity()) { Log.w(TAG, "${url.substringAfterLast('/')}: frame ${data.size} > buffer ${ib.capacity()}"); c.queueInputBuffer(i, 0, 0, pts, 0); needKey = true; return }
             ib.clear()
             ib.put(data)
             c.queueInputBuffer(i, 0, data.size, pts, if (key) MediaCodec.BUFFER_FLAG_KEY_FRAME else 0)
@@ -446,13 +456,14 @@ class RtspStream(
                 }
             }
             return try {
-                val c = MediaCodec.createDecoderByType(mime)
+                val c = (if (thumbs) Decoders.softwareName(mime) else null)?.let { MediaCodec.createByCodecName(it) }
+                    ?: MediaCodec.createDecoderByType(mime)
                 c.configure(fmt, surface, null, 0)
                 c.start()
                 codec = c
                 draining = true
                 drain = Thread({ drain(c) }, "rtsp-out").apply { start() }
-                Log.i(TAG, "${url.substringAfterLast('/')}: ${c.name} ${w}x$h")
+                mark("${c.name} ${w}x$h")
                 true
             } catch (e: Exception) {
                 Log.w(TAG, "decoder", e)
@@ -466,7 +477,7 @@ class RtspStream(
                 val i = try { c.dequeueOutputBuffer(info, 100_000) } catch (_: IllegalStateException) { break }
                 if (i >= 0) {
                     c.releaseOutputBuffer(i, true)
-                    if (!live) { live = true; onLink(Link.Live) }
+                    if (!live) { live = true; mark("first frame"); onLink(Link.Live) }
                 }
             }
         }

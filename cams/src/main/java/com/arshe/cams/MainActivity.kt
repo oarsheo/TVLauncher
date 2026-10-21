@@ -93,6 +93,10 @@ class Wall(val prefs: Prefs) {
 
     val cols get() = ceil(sqrt(cams.size + 1.0)).toInt().coerceAtLeast(1)
 
+    /** Too few hardware decoders for a live grid (TVs): keyframe thumbnails, hardware kept for fullscreen. */
+    val thumbs get() = cams.size > hwSlots
+    private val hwSlots by lazy { Decoders.hardwareSlots() }
+
     /** Cell [i] of a cols×cols grid of 16:9 tiles (the info panel takes the rest of the last row). */
     fun cell(i: Int, span: Int = 1): Modifier {
         val cw = 1920f / cols
@@ -142,8 +146,8 @@ class MainActivity : ComponentActivity() {
         }
         wall.cams = withContext(Dispatchers.IO) { CameraCache.load(this@MainActivity) }
         wall.prefs.seed(nvr)
-        homeRole(nvr.home)
         wall.nvr = nvr
+        withContext(Dispatchers.IO) { homeRole(nvr.home) }
         while (true) {
             val fresh = withContext(Dispatchers.IO) { runCatching { Onvif.cameras(nvr) } }
             fresh.onSuccess {
@@ -159,13 +163,18 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    /**
+     * Switches the HOME alias only when it has to change: on Philips TVs the call blocks for about
+     * a minute, so a TV (alias off by default in the manifest) never makes it.
+     */
     private fun homeRole(on: Boolean) {
+        val pm = packageManager
         val alias = android.content.ComponentName(this, "$packageName.Home")
+        val enabled = pm.getComponentEnabledSetting(alias) == android.content.pm.PackageManager.COMPONENT_ENABLED_STATE_ENABLED
+        if (on == enabled) return
         val state = if (on) android.content.pm.PackageManager.COMPONENT_ENABLED_STATE_ENABLED
-        else android.content.pm.PackageManager.COMPONENT_ENABLED_STATE_DISABLED
-        if (packageManager.getComponentEnabledSetting(alias) != state) {
-            packageManager.setComponentEnabledSetting(alias, state, android.content.pm.PackageManager.DONT_KILL_APP)
-        }
+        else android.content.pm.PackageManager.COMPONENT_ENABLED_STATE_DEFAULT
+        pm.setComponentEnabledSetting(alias, state, android.content.pm.PackageManager.DONT_KILL_APP)
     }
 
     /** Person alarms on the cameras chosen in settings (all of them at night in guard mode). */
@@ -311,7 +320,7 @@ private fun Videos(w: Wall) = Box(Modifier.fillMaxSize()) {
         }
     } else {
         w.cams.forEachIndexed { i, cam ->
-            key(cam.id) { Video(cam.sub, nvr, { w.links[cam.id] = it }, w.cell(i).padding(2.dp)) }
+            key(cam.id) { Video(cam.sub, nvr, { w.links[cam.id] = it }, w.cell(i).padding(2.dp), thumbs = w.thumbs) }
         }
     }
 }
@@ -516,6 +525,7 @@ private class Player(
     private val url: String,
     private val nvr: Nvr,
     private val sound: Boolean,
+    private val thumbs: Boolean,
     private val report: (Link) -> Unit,
 ) : SurfaceHolder.Callback {
     private var stream: RtspStream? = null
@@ -524,7 +534,7 @@ private class Player(
 
     override fun surfaceCreated(h: SurfaceHolder) {
         main.post { report(Link.Connecting) }
-        stream = RtspStream(url, nvr.user, nvr.pass, h.surface, sound) { l -> main.post { report(l) } }
+        stream = RtspStream(url, nvr.user, nvr.pass, h.surface, sound, thumbs) { l -> main.post { report(l) } }
             .also { it.muted = muted; it.start() }
     }
 
@@ -537,14 +547,18 @@ private class Player(
 }
 
 @Composable
-private fun Video(url: String, nvr: Nvr, onLink: (Link) -> Unit, modifier: Modifier, sound: Boolean = false, muted: Boolean = false) {
+private fun Video(url: String, nvr: Nvr, onLink: (Link) -> Unit, modifier: Modifier, sound: Boolean = false, muted: Boolean = false, thumbs: Boolean = false) {
     val report by rememberUpdatedState(onLink)
     AndroidView(
         factory = { ctx ->
             SurfaceView(ctx).apply {
-                val p = Player(url, nvr, sound) { report(it) }.also { it.muted = muted }
+                val p = Player(url, nvr, sound, thumbs) { report(it) }.also { it.muted = muted }
                 holder.addCallback(p)
                 tag = p
+                // On Philips TVs nothing else triggers another layout pass after this view is
+                // added, so the surface would only appear with the next clock tick (up to a minute).
+                post { requestLayout(); rootView.invalidate() }
+                postDelayed({ requestLayout(); rootView.invalidate() }, 300)
             }
         },
         update = { (it.tag as Player).muted = muted },
